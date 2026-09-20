@@ -89,7 +89,7 @@ export class MenuController {
 
   public static async createItem(req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
     try {
-      const { name, category_id, base_price, is_veg, description, image_path, is_available } = req.body;
+      const { name, category_id, base_price, is_veg, is_egg, spice_level, tags, description, image_path, is_available, variants } = req.body;
       if (!name || !name.trim()) {
         res.status(400).json({
           success: false,
@@ -120,9 +120,13 @@ export class MenuController {
         category_id,
         base_price: Number(base_price),
         is_veg: is_veg !== undefined ? Boolean(is_veg) : true,
+        is_egg: is_egg !== undefined ? Boolean(is_egg) : false,
+        spice_level: typeof spice_level === 'string' ? spice_level : 'NONE',
+        tags: Array.isArray(tags) ? tags : [],
         description,
         image_path,
-        is_available: is_available !== undefined ? Boolean(is_available) : true
+        is_available: is_available !== undefined ? Boolean(is_available) : true,
+        variants: Array.isArray(variants) ? variants : undefined
       });
 
       res.status(201).json({
@@ -139,16 +143,20 @@ export class MenuController {
   public static async updateItem(req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
-      const { name, category_id, base_price, is_veg, description, image_path, is_available } = req.body;
+      const { name, category_id, base_price, is_veg, is_egg, spice_level, tags, description, image_path, is_available, variants } = req.body;
 
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (category_id !== undefined) updateData.category_id = category_id;
       if (base_price !== undefined) updateData.base_price = Number(base_price);
       if (is_veg !== undefined) updateData.is_veg = Boolean(is_veg);
+      if (is_egg !== undefined) updateData.is_egg = Boolean(is_egg);
+      if (spice_level !== undefined) updateData.spice_level = spice_level;
+      if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
       if (description !== undefined) updateData.description = description;
       if (image_path !== undefined) updateData.image_path = image_path;
       if (is_available !== undefined) updateData.is_available = Boolean(is_available);
+      if (variants !== undefined) updateData.variants = Array.isArray(variants) ? variants : [];
 
       const updated = await MenuService.updateItem(id, updateData);
       res.json({

@@ -24,14 +24,68 @@ router.post(
       }
 
       if (receiptType === 'KOT') {
-        if (!orderId) {
-          res.status(400).json({ success: false, message: 'orderId is required for KOT' });
+        const { orderId, invoiceId, items, orderNumber, tableOrAddress } = req.body;
+
+        if (items && Array.isArray(items) && items.length > 0) {
+          const payload = ReceiptBuilder.buildKOT({
+            orderNumber: orderNumber || 'KOT-POS',
+            orderType: 'POS COUNTER',
+            date: new Date().toLocaleString('en-IN'),
+            tableOrAddress: tableOrAddress || 'Counter Walk-in',
+            items: items.map((it: any) => ({
+              name: it.item_name || it.name,
+              quantity: it.quantity || 1
+            }))
+          });
+          res.json({
+            success: true,
+            data: {
+              ...payload,
+              escPosBase64: payload.base64String
+            }
+          });
           return;
         }
 
-        const order = await OrderRepository.getOrderById(orderId);
+        if (!orderId && !invoiceId) {
+          res.status(400).json({ success: false, message: 'orderId, invoiceId, or items array is required for KOT' });
+          return;
+        }
+
+        let order: any = null;
+        if (orderId) {
+          order = await OrderRepository.getOrderById(orderId);
+        }
+
+        const effectiveInvoiceId = invoiceId || (!order ? orderId : null);
+        if (!order && effectiveInvoiceId) {
+          const invoice = await BillingRepository.getInvoiceById(effectiveInvoiceId);
+          if (invoice) {
+            const rawItems = invoice.orders?.order_items || invoice.items || [];
+            const payload = ReceiptBuilder.buildKOT({
+              orderNumber: invoice.invoice_number,
+              orderType: 'POS COUNTER',
+              date: new Date(invoice.issued_at || Date.now()).toLocaleString('en-IN'),
+              tableOrAddress: invoice.department || 'Counter Walk-in',
+              items: rawItems.map((it: any) => ({
+                name: it.item_name || it.name,
+                quantity: it.quantity
+              }))
+            });
+
+            res.json({
+              success: true,
+              data: {
+                ...payload,
+                escPosBase64: payload.base64String
+              }
+            });
+            return;
+          }
+        }
+
         if (!order) {
-          res.status(404).json({ success: false, message: `Order ${orderId} not found` });
+          res.status(404).json({ success: false, message: `Order or Invoice '${orderId || invoiceId}' not found for KOT` });
           return;
         }
 
@@ -40,7 +94,7 @@ router.post(
           orderType: order.order_type,
           date: new Date(order.created_at).toLocaleString('en-IN'),
           tableOrAddress: order.delivery_address || order.customer_name,
-          items: (order.items || []).map((it) => ({
+          items: (order.items || []).map((it: any) => ({
             name: it.item_name,
             quantity: it.quantity
           }))

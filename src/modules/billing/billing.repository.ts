@@ -7,6 +7,9 @@ export interface CreateInvoiceInput {
   cateringQuoteId?: string;
   invoiceType: 'DIRECT' | 'CORPORATE_CREDIT' | 'CATERING';
   department?: string;
+  customerName?: string;
+  customerPhone?: string;
+  issueDate?: string;
   paymentMode?: 'CASH' | 'UPI' | 'CREDIT' | 'CARD' | 'SPLIT';
   transactionRef?: string;
   subtotal: number;
@@ -66,6 +69,7 @@ export class BillingRepository {
     const status = isCredit ? 'UNPAID' : 'PAID';
     const paidAmount = isCredit ? 0 : input.grandTotal;
     const outstandingAmount = isCredit ? input.grandTotal : 0;
+    const issuedAt = input.issueDate ? new Date(input.issueDate).toISOString() : new Date().toISOString();
 
     // 1. Insert Invoice
     const { data: invData, error: invErr } = await admin
@@ -84,6 +88,7 @@ export class BillingRepository {
         paid_amount: paidAmount,
         outstanding_amount: outstandingAmount,
         status,
+        issued_at: issuedAt,
         pdf_storage_path: input.pdfStoragePath || null
       })
       .select('id, invoice_number, status, paid_amount, outstanding_amount')
@@ -357,7 +362,9 @@ export class BillingRepository {
       throw new Error('Supabase admin client not initialized.');
     }
 
-    const { data, error } = await admin
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invoiceId.trim());
+
+    let query = admin
       .from('invoices')
       .select(`
         id,
@@ -404,9 +411,15 @@ export class BillingRepository {
           transaction_ref,
           paid_at
         )
-      `)
-      .eq('id', invoiceId)
-      .maybeSingle();
+      `);
+
+    if (isUuid) {
+      query = query.eq('id', invoiceId.trim());
+    } else {
+      query = query.eq('invoice_number', invoiceId.trim().toUpperCase());
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       throw new Error(`Database error fetching invoice details: ${error.message}`);

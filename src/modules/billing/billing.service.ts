@@ -5,6 +5,7 @@ import {
   RecordPaymentInput,
   InvoiceFilters
 } from './billing.repository';
+import { getSupabaseAdminClient } from '../../config/supabase.config';
 
 export interface GenerateInvoiceInput {
   orderId?: string;
@@ -12,6 +13,9 @@ export interface GenerateInvoiceInput {
   cateringQuoteId?: string;
   invoiceType: 'DIRECT' | 'CORPORATE_CREDIT' | 'CATERING';
   department?: string;
+  customerName?: string;
+  customerPhone?: string;
+  issueDate?: string;
   items: Array<{
     productId: string;
     name: string;
@@ -52,22 +56,21 @@ export class BillingService {
       };
     });
 
-    const discountRate = input.overallDiscountPercent || 0;
-    const totalDiscount = Number(((subtotal * discountRate) / 100).toFixed(2));
-    const additionalCharges = Number((input.additionalCharges || 0).toFixed(2));
-
-    const grandTotal = Number((subtotal + totalTax - totalDiscount + additionalCharges).toFixed(2));
+    const discountAmount = Number(((subtotal * (input.overallDiscountPercent || 0)) / 100).toFixed(2));
+    const grandTotal = Number((subtotal + totalTax - discountAmount + (input.additionalCharges || 0)).toFixed(2));
     const roundedTotal = Math.round(grandTotal);
+    const roundOffDifference = Number((roundedTotal - grandTotal).toFixed(2));
 
     return {
-      items: itemsSummary,
       subtotal: Number(subtotal.toFixed(2)),
       totalTax: Number(totalTax.toFixed(2)),
-      totalDiscount,
-      additionalCharges,
+      totalDiscount: discountAmount,
+      additionalCharges: input.additionalCharges || 0,
       grandTotal,
       roundedTotal,
-      currency: 'INR'
+      roundOffDifference,
+      currency: 'INR',
+      items: itemsSummary
     };
   }
 
@@ -92,13 +95,62 @@ export class BillingService {
       billType: input.invoiceType
     });
 
-    // 2. Persist Invoice in Supabase with exact payment mode & outstanding tracking
+    // 2. If no orderId provided (direct POS billing), auto-create orders + order_items record so line items and customer details are tracked and printable in KOT & PDF!
+    let effectiveOrderId = input.orderId;
+    const admin = getSupabaseAdminClient();
+    if (!effectiveOrderId && admin) {
+      try {
+        const orderNumber = `CW-POS-${Date.now().toString().slice(-6)}`;
+        const customerLabel = input.customerName
+          ? `${input.customerName}${input.customerPhone ? ` (${input.customerPhone})` : ''}`
+          : input.department || 'Counter Walk-in';
+
+        const { data: orderData, error: orderErr } = await admin
+          .from('orders')
+          .insert({
+            order_number: orderNumber,
+            order_type: 'TAKEAWAY',
+            delivery_address: customerLabel,
+            subtotal: calculation.subtotal,
+            tax_amount: calculation.totalTax,
+            discount_amount: calculation.totalDiscount,
+            grand_total: calculation.roundedTotal,
+            status: 'COMPLETED',
+            payment_status: input.paymentMode === 'CREDIT' ? 'PENDING' : 'PAID',
+            payment_mode: input.paymentMode || 'CASH',
+            transaction_ref: input.transactionRef || null,
+            created_at: input.issueDate ? new Date(input.issueDate).toISOString() : new Date().toISOString()
+          })
+          .select('id')
+          .single();
+
+        if (!orderErr && orderData?.id) {
+          effectiveOrderId = orderData.id;
+          // Insert actual order items from the cart
+          const orderItemsToInsert = input.items.map((it) => ({
+            order_id: orderData.id,
+            item_name: it.name,
+            unit_price: it.unitPrice,
+            quantity: it.quantity,
+            line_total: Number((it.quantity * it.unitPrice).toFixed(2))
+          }));
+          await admin.from('order_items').insert(orderItemsToInsert);
+        }
+      } catch (err: any) {
+        console.error('Failed to create order snapshot for POS invoice:', err);
+      }
+    }
+
+    // 3. Persist Invoice in Supabase with exact payment mode & outstanding tracking
     const invoice = await BillingRepository.createInvoice({
-      orderId: input.orderId,
+      orderId: effectiveOrderId,
       corporateClientId: input.corporateClientId,
       cateringQuoteId: input.cateringQuoteId,
       invoiceType: input.invoiceType,
-      department: input.department,
+      department: input.department || (input.customerName ? `${input.customerName}${input.customerPhone ? ` (${input.customerPhone})` : ''}` : undefined),
+      customerName: input.customerName,
+      customerPhone: input.customerPhone,
+      issueDate: input.issueDate,
       paymentMode: input.paymentMode,
       transactionRef: input.transactionRef,
       subtotal: calculation.subtotal,

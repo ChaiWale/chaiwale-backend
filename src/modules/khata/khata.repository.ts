@@ -9,6 +9,7 @@ export interface KhataOfficeRecord {
   company_name?: string;
   floor_unit?: string;
   notes?: string;
+  client_pin?: string;
   created_at: string;
   updated_at: string;
 }
@@ -35,7 +36,7 @@ export interface KhataPaymentRecord {
   created_at: string;
 }
 
-const LOCAL_STORE_FILE = path.join(__dirname, '../../../../data/khatabook_store.json');
+const LOCAL_STORE_FILE = path.resolve(__dirname, '../../../data/khatabook_store.json');
 
 function ensureLocalStore(): {
   offices: KhataOfficeRecord[];
@@ -48,74 +49,8 @@ function ensureLocalStore(): {
   }
   if (!fs.existsSync(LOCAL_STORE_FILE)) {
     const initial = {
-      offices: [
-        {
-          id: 'off-demo-1',
-          name: 'Sharma Ji & Associates',
-          phone: '9811223344',
-          company_name: 'Sharma Law Office',
-          floor_unit: 'Cabin 204, 2nd Floor',
-          notes: 'Chai sutta daily ledger, settles on 1st of every month',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'off-demo-2',
-          name: 'Tech Mahindra Support Team',
-          phone: '8800410441',
-          company_name: 'Tech Mahindra',
-          floor_unit: '4th Floor, Vardhman Plaza',
-          notes: 'Daily 10-15 chai + biscuits, weekly Friday settlement',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      ],
-      entries: [
-        {
-          id: 'ent-demo-1',
-          office_id: 'off-demo-2',
-          date: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0],
-          item_name: 'Chai',
-          quantity: 8,
-          unit_price: 12,
-          total_amount: 96,
-          notes: 'Morning tea',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'ent-demo-2',
-          office_id: 'off-demo-2',
-          date: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0],
-          item_name: 'Bun Maska',
-          quantity: 2,
-          unit_price: 25,
-          total_amount: 50,
-          notes: 'Snacks',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'ent-demo-3',
-          office_id: 'off-demo-2',
-          date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-          item_name: 'Chai',
-          quantity: 10,
-          unit_price: 12,
-          total_amount: 120,
-          notes: 'Evening tea',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 'ent-demo-4',
-          office_id: 'off-demo-2',
-          date: new Date().toISOString().split('T')[0],
-          item_name: 'Veg Thali',
-          quantity: 2,
-          unit_price: 99,
-          total_amount: 198,
-          notes: 'Lunch',
-          created_at: new Date().toISOString()
-        }
-      ],
+      offices: [],
+      entries: [],
       payments: []
     };
     fs.writeFileSync(LOCAL_STORE_FILE, JSON.stringify(initial, null, 2), 'utf8');
@@ -139,6 +74,11 @@ function saveLocalStore(data: {
 }
 
 export class KhataRepository {
+  public static generatePin(): string {
+    // 4-digit numerical PIN (1000 - 9999)
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
   public static async getOffices(): Promise<
     (KhataOfficeRecord & {
       total_consumption: number;
@@ -148,7 +88,14 @@ export class KhataRepository {
     })[]
   > {
     const store = ensureLocalStore();
-    return store.offices.map((off) => {
+    let hasUpdatedPin = false;
+
+    const result = store.offices.map((off) => {
+      if (!off.client_pin) {
+        off.client_pin = KhataRepository.generatePin();
+        hasUpdatedPin = true;
+      }
+
       const entries = store.entries.filter((e) => e.office_id === off.id);
       const payments = store.payments.filter((p) => p.office_id === off.id);
       const total_consumption = entries.reduce((s, e) => s + Number(e.total_amount), 0);
@@ -165,6 +112,12 @@ export class KhataRepository {
         last_entry_date
       };
     });
+
+    if (hasUpdatedPin) {
+      saveLocalStore(store);
+    }
+
+    return result;
   }
 
   public static async createOffice(input: {
@@ -173,9 +126,14 @@ export class KhataRepository {
     company_name?: string;
     floor_unit?: string;
     notes?: string;
+    client_pin?: string;
   }): Promise<KhataOfficeRecord> {
     const store = ensureLocalStore();
     const id = `off-${Date.now().toString(36)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const pin = (input.client_pin && input.client_pin.trim())
+      ? input.client_pin.trim().toUpperCase()
+      : KhataRepository.generatePin();
+
     const newOffice: KhataOfficeRecord = {
       id,
       name: input.name.trim(),
@@ -183,6 +141,7 @@ export class KhataRepository {
       company_name: input.company_name?.trim() || undefined,
       floor_unit: input.floor_unit?.trim() || undefined,
       notes: input.notes?.trim() || undefined,
+      client_pin: pin,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -370,4 +329,105 @@ export class KhataRepository {
       whatsappText
     };
   }
+
+  /**
+   * Customer self-lookup by phone + PIN (public route)
+   * Returns a limited view: name, balance due, last 10 entries
+   */
+  public static async customerLookup(phone: string, pin: string): Promise<{
+    name: string;
+    company?: string;
+    balanceDue: number;
+    totalConsumption: number;
+    totalPayments: number;
+    recentEntries: { date: string; item_name: string; quantity: number; total_amount: number }[];
+  } | null> {
+    const store = ensureLocalStore();
+    // Normalize phone for comparison (strip spaces, dashes, +91 prefix)
+    const normalizePhone = (p: string) => p.replace(/[\s\-]/g, '').replace(/^\+91/, '').replace(/^91/, '');
+    const office = store.offices.find((o: any) =>
+      normalizePhone(o.phone) === normalizePhone(phone) && o.client_pin === pin
+    );
+    if (!office) return null;
+
+    const entries = store.entries.filter((e: KhataEntryRecord) => e.office_id === office.id);
+    const payments = store.payments.filter((p: KhataPaymentRecord) => p.office_id === office.id);
+    const totalConsumption = entries.reduce((s: number, e: KhataEntryRecord) => s + e.total_amount, 0);
+    const totalPayments = payments.reduce((s: number, p: KhataPaymentRecord) => s + p.amount, 0);
+    const balanceDue = Math.max(0, totalConsumption - totalPayments);
+
+    const recentEntries = [...entries]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 15)
+      .map((e) => ({ date: e.date, item_name: e.item_name, quantity: e.quantity, total_amount: e.total_amount }));
+
+    return {
+      name: office.name,
+      company: (office as any).company_name,
+      balanceDue,
+      totalConsumption,
+      totalPayments,
+      recentEntries
+    };
+  }
+
+  /**
+   * Admin — set client PIN for an office
+   */
+  public static async setClientPin(officeId: string, pin: string): Promise<boolean> {
+    const store = ensureLocalStore();
+    const office = store.offices.find((o: KhataOfficeRecord) => o.id === officeId) as any;
+    if (!office) return false;
+    office.client_pin = pin;
+    office.updated_at = new Date().toISOString();
+    fs.writeFileSync(LOCAL_STORE_FILE, JSON.stringify(store, null, 2), 'utf8');
+    return true;
+  }
+
+  /**
+   * Admin — delete office account and associated entries/payments
+   */
+  public static async deleteOffice(officeId: string): Promise<boolean> {
+    const store = ensureLocalStore();
+    const idx = store.offices.findIndex((o) => o.id === officeId);
+    if (idx === -1) return false;
+    store.offices.splice(idx, 1);
+    store.entries = store.entries.filter((e) => e.office_id !== officeId);
+    store.payments = store.payments.filter((p) => p.office_id !== officeId);
+    saveLocalStore(store);
+    return true;
+  }
+
+  /**
+   * Admin — update office details
+   */
+  public static async updateOffice(
+    officeId: string,
+    data: { name?: string; phone?: string; company_name?: string; floor_unit?: string; notes?: string }
+  ): Promise<KhataOfficeRecord | null> {
+    const store = ensureLocalStore();
+    const office = store.offices.find((o) => o.id === officeId);
+    if (!office) return null;
+    if (data.name !== undefined) office.name = data.name.trim();
+    if (data.phone !== undefined) office.phone = data.phone.trim().replace(/\D/g, '');
+    if (data.company_name !== undefined) office.company_name = data.company_name.trim();
+    if (data.floor_unit !== undefined) office.floor_unit = data.floor_unit.trim();
+    if (data.notes !== undefined) office.notes = data.notes.trim();
+    office.updated_at = new Date().toISOString();
+    saveLocalStore(store);
+    return office;
+  }
+
+  /**
+   * Admin — delete a payment record
+   */
+  public static async deletePayment(paymentId: string): Promise<boolean> {
+    const store = ensureLocalStore();
+    const idx = store.payments.findIndex((p) => p.id === paymentId);
+    if (idx === -1) return false;
+    store.payments.splice(idx, 1);
+    saveLocalStore(store);
+    return true;
+  }
 }
+

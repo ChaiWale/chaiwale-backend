@@ -1,4 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { StorageService } from '../storage/storage.service';
+import { requireAuth, requireRole } from '../../middlewares/auth.middleware';
 
 const router = Router();
 const PUBLIC_BUCKETS = new Set(['branding', 'menu', 'catering']);
@@ -13,6 +15,97 @@ const MIME_TYPES: Record<string, string> = {
   gif: 'image/gif',
   ico: 'image/x-icon'
 };
+
+/**
+ * Upload Media Endpoint (Admin / Staff / Manager)
+ * Accepts base64 image or data URL, validates, and saves to Supabase Storage 'menu' bucket as WebP.
+ * Always stores in WebP format.
+ */
+router.post(
+  '/upload',
+  requireAuth,
+  requireRole(['admin', 'manager', 'staff']),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageBase64, fileName, folder = 'items', bucket = 'menu' } = req.body;
+
+      if (!imageBase64) {
+        res.status(400).json({
+          success: false,
+          message: 'Image data (imageBase64) is required'
+        });
+        return;
+      }
+
+      // Check bucket safety
+      if (!PUBLIC_BUCKETS.has(bucket)) {
+        res.status(403).json({
+          success: false,
+          message: 'Upload allowed only to public media buckets'
+        });
+        return;
+      }
+
+      // Extract base64 payload & content-type
+      let contentType = 'image/webp';
+      let rawBase64 = imageBase64;
+
+      if (imageBase64.includes(';base64,')) {
+        const parts = imageBase64.split(';base64,');
+        const match = parts[0].match(/data:(.*?)$/);
+        if (match && match[1]) {
+          contentType = match[1];
+        }
+        rawBase64 = parts[1];
+      }
+
+      const fileBuffer = Buffer.from(rawBase64, 'base64');
+
+      // Sanitize folder & filename
+      const safeFolder = folder.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() || 'items';
+      const cleanName = (fileName || 'item')
+        .toLowerCase()
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || 'item';
+
+      const timestamp = Date.now();
+      const storagePath = `${safeFolder}/${cleanName}-${timestamp}.webp`;
+
+      const uploadedPath = await StorageService.uploadMedia({
+        bucket: bucket as any,
+        path: storagePath,
+        fileBuffer,
+        contentType: 'image/webp',
+        isPublic: true
+      });
+
+      if (!uploadedPath) {
+        res.status(500).json({
+          success: false,
+          message: 'Storage upload failed. Supabase client unavailable.'
+        });
+        return;
+      }
+
+      const imagePath = `${bucket}/${uploadedPath}`;
+      const publicUrl = `${SUPABASE_STORAGE_URL}/${bucket}/${uploadedPath}`;
+
+      res.status(201).json({
+        success: true,
+        message: 'Image uploaded successfully to Supabase Storage as WebP',
+        data: {
+          imagePath,
+          storagePath: uploadedPath,
+          publicUrl
+        }
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+);
 
 /**
  * Public Media Proxy Endpoint

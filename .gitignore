@@ -7,5 +7,6 @@ dist/
 .env.production.local
 *.log
 src/scripts/
-data/
+data/*
+!data/khatabook_store.json
 *.tsbuildinfo

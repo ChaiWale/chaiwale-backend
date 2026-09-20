@@ -38,5 +38,6 @@ export interface BillingCalculationResult {
   additionalCharges: number;
   grandTotal: number;
   roundedTotal: number;
+  roundOffDifference?: number;
   currency: string;
 }

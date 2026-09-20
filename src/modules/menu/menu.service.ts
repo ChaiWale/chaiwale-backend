@@ -24,8 +24,12 @@ export class MenuService {
     description?: string | null;
     base_price: number;
     is_veg?: boolean;
+    is_egg?: boolean;
+    spice_level?: string;
+    tags?: string[];
     image_path?: string | null;
     is_available?: boolean;
+    variants?: Array<{ name: string; price: number; is_available?: boolean }>;
   }): Promise<MenuItemRecord> {
     const slug =
       input.slug && input.slug.trim()
@@ -41,8 +45,12 @@ export class MenuService {
       description: input.description?.trim() || null,
       base_price: Number(input.base_price),
       is_veg: input.is_veg !== undefined ? input.is_veg : true,
+      is_egg: input.is_egg !== undefined ? input.is_egg : false,
+      spice_level: input.spice_level || 'NONE',
+      tags: input.tags || [],
       image_path: input.image_path || null,
-      is_available: input.is_available !== undefined ? input.is_available : true
+      is_available: input.is_available !== undefined ? input.is_available : true,
+      variants: input.variants
     });
   }
 
@@ -55,8 +63,12 @@ export class MenuService {
       description: string | null;
       base_price: number;
       is_veg: boolean;
+      is_egg: boolean;
+      spice_level: string;
+      tags: string[];
       image_path: string | null;
       is_available: boolean;
+      variants: Array<{ id?: string; name: string; price: number; is_available?: boolean }>;
     }>
   ): Promise<MenuItemRecord> {
     const payload: any = { ...input };

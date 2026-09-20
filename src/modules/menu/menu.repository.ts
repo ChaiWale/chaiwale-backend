@@ -8,6 +8,15 @@ export interface CategoryRecord {
   is_active: boolean;
 }
 
+export interface MenuItemVariantRecord {
+  id?: string;
+  menu_item_id?: string;
+  name: string;
+  price: number;
+  is_available?: boolean;
+  created_at?: string;
+}
+
 export interface MenuItemRecord {
   id: string;
   category_id: string;
@@ -16,8 +25,14 @@ export interface MenuItemRecord {
   description: string | null;
   base_price: number;
   is_veg: boolean;
+  is_egg?: boolean;
+  spice_level?: string;
+  tags?: string[];
   image_path: string | null;
   is_available: boolean;
+  variants?: MenuItemVariantRecord[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export class MenuRepository {
@@ -44,7 +59,7 @@ export class MenuRepository {
   }
 
   /**
-   * Fetch menu items from Supabase with optional category and search filtering
+   * Fetch menu items from Supabase with optional category, search filtering and variants
    */
   public static async getItems(categoryId?: string, search?: string, availableOnly = true): Promise<MenuItemRecord[]> {
     const client = getSupabaseClient() || getSupabaseAdminClient();
@@ -52,7 +67,7 @@ export class MenuRepository {
       throw new Error('Supabase client is not configured.');
     }
 
-    let query = client.from('menu_items').select('*');
+    let query = client.from('menu_items').select('*, variants:menu_item_variants(*)');
 
     if (availableOnly) {
       query = query.eq('is_available', true);
@@ -73,11 +88,14 @@ export class MenuRepository {
       throw new Error(`Database error fetching items: ${error.message}`);
     }
 
-    return data || [];
+    return (data || []).map((item: any) => ({
+      ...item,
+      variants: Array.isArray(item.variants) ? item.variants : []
+    }));
   }
 
   /**
-   * Fetch single item by ID or slug
+   * Fetch single item by ID or slug with variants
    */
   public static async getItemById(id: string): Promise<MenuItemRecord | null> {
     const client = getSupabaseClient() || getSupabaseAdminClient();
@@ -87,7 +105,7 @@ export class MenuRepository {
 
     const { data, error } = await client
       .from('menu_items')
-      .select('*')
+      .select('*, variants:menu_item_variants(*)')
       .or(`id.eq.${id},slug.eq.${id}`)
       .maybeSingle();
 
@@ -95,7 +113,11 @@ export class MenuRepository {
       throw new Error(`Database error fetching item ${id}: ${error.message}`);
     }
 
-    return data;
+    if (!data) return null;
+    return {
+      ...data,
+      variants: Array.isArray(data.variants) ? data.variants : []
+    };
   }
 
   /**
@@ -111,18 +133,21 @@ export class MenuRepository {
       .from('menu_items')
       .update({ is_available: isAvailable, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select('*, variants:menu_item_variants(*)')
       .single();
 
     if (error) {
       throw new Error(`Database error updating item availability: ${error.message}`);
     }
 
-    return data;
+    return {
+      ...data,
+      variants: Array.isArray(data.variants) ? data.variants : []
+    };
   }
 
   /**
-   * Create a new menu item (Admin operation)
+   * Create a new menu item with optional variants (Admin operation)
    */
   public static async createItem(input: {
     category_id: string;
@@ -131,27 +156,36 @@ export class MenuRepository {
     description?: string | null;
     base_price: number;
     is_veg: boolean;
+    is_egg?: boolean;
+    spice_level?: string;
+    tags?: string[];
     image_path?: string | null;
     is_available?: boolean;
+    variants?: Array<{ name: string; price: number; is_available?: boolean }>;
   }): Promise<MenuItemRecord> {
     const admin = getSupabaseAdminClient();
     if (!admin) {
       throw new Error('Supabase admin client is not configured.');
     }
 
+    const insertPayload: Record<string, any> = {
+      category_id: input.category_id,
+      slug: input.slug,
+      name: input.name,
+      description: input.description || null,
+      base_price: input.base_price,
+      is_veg: input.is_veg !== undefined ? input.is_veg : true,
+      is_egg: input.is_egg !== undefined ? input.is_egg : false,
+      spice_level: input.spice_level || 'NONE',
+      tags: input.tags || [],
+      image_path: input.image_path || null,
+      is_available: input.is_available !== undefined ? input.is_available : true,
+      updated_at: new Date().toISOString()
+    };
+
     const { data, error } = await admin
       .from('menu_items')
-      .insert({
-        category_id: input.category_id,
-        slug: input.slug,
-        name: input.name,
-        description: input.description || null,
-        base_price: input.base_price,
-        is_veg: input.is_veg !== undefined ? input.is_veg : true,
-        image_path: input.image_path || null,
-        is_available: input.is_available !== undefined ? input.is_available : true,
-        updated_at: new Date().toISOString()
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -159,11 +193,33 @@ export class MenuRepository {
       throw new Error(`Database error creating menu item: ${error.message}`);
     }
 
-    return data;
+    let insertedVariants: MenuItemVariantRecord[] = [];
+    if (input.variants && input.variants.length > 0) {
+      const variantRows = input.variants.map((v) => ({
+        menu_item_id: data.id,
+        name: v.name.trim(),
+        price: Number(v.price),
+        is_available: v.is_available !== undefined ? v.is_available : true
+      }));
+
+      const { data: vData, error: vError } = await admin
+        .from('menu_item_variants')
+        .insert(variantRows)
+        .select();
+
+      if (!vError && vData) {
+        insertedVariants = vData;
+      }
+    }
+
+    return {
+      ...data,
+      variants: insertedVariants
+    };
   }
 
   /**
-   * Update menu item details (Admin operation)
+   * Update menu item details and sync variants (Admin operation)
    */
   public static async updateItem(
     id: string,
@@ -174,8 +230,12 @@ export class MenuRepository {
       description: string | null;
       base_price: number;
       is_veg: boolean;
+      is_egg: boolean;
+      spice_level: string;
+      tags: string[];
       image_path: string | null;
       is_available: boolean;
+      variants: Array<{ id?: string; name: string; price: number; is_available?: boolean }>;
     }>
   ): Promise<MenuItemRecord> {
     const admin = getSupabaseAdminClient();
@@ -183,8 +243,10 @@ export class MenuRepository {
       throw new Error('Supabase admin client is not configured.');
     }
 
+    const { variants, ...fieldsToUpdate } = input;
+
     const updatePayload: Record<string, any> = {
-      ...input,
+      ...fieldsToUpdate,
       updated_at: new Date().toISOString()
     };
 
@@ -199,7 +261,26 @@ export class MenuRepository {
       throw new Error(`Database error updating menu item: ${error.message}`);
     }
 
-    return data;
+    // Sync variants if explicitly provided
+    if (variants !== undefined) {
+      // 1. Delete existing variants
+      await admin.from('menu_item_variants').delete().eq('menu_item_id', id);
+
+      // 2. Insert new variants if any
+      if (variants.length > 0) {
+        const variantRows = variants.map((v) => ({
+          menu_item_id: id,
+          name: v.name.trim(),
+          price: Number(v.price),
+          is_available: v.is_available !== undefined ? v.is_available : true
+        }));
+        await admin.from('menu_item_variants').insert(variantRows);
+      }
+    }
+
+    // Fetch fresh item with variants
+    const fresh = await this.getItemById(id);
+    return fresh || data;
   }
 
   /**

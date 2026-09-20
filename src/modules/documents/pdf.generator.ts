@@ -177,9 +177,18 @@ export class PdfGenerator {
       .font('Helvetica-Bold')
       .text('Billed To:', 52, clientY + 10);
 
-    const clientName = invoice.corporate_clients?.company_name || invoice.orders?.customer_name || 'Valued Customer';
+    const clientName =
+      invoice.corporate_clients?.company_name ||
+      invoice.orders?.customers?.name ||
+      invoice.orders?.customer_name ||
+      invoice.department ||
+      'Valued Customer';
     const clientGst = invoice.corporate_clients?.gstin ? `GSTIN: ${invoice.corporate_clients.gstin}` : '';
-    const clientAddr = invoice.corporate_clients?.billing_address || invoice.orders?.delivery_address || 'Counter Walk-in';
+    const clientAddr =
+      invoice.corporate_clients?.billing_address ||
+      invoice.orders?.delivery_address ||
+      invoice.orders?.customers?.phone ||
+      (invoice.department ? invoice.department : 'Counter Walk-in');
 
     doc
       .font('Helvetica')
@@ -205,9 +214,11 @@ export class PdfGenerator {
 
     // Line Items
     let currentY = tableTop + 24;
-    const items = invoice.orders?.order_items || [
-      { item_name: 'Special Masala Chai & Refreshments', unit_price: invoice.subtotal, quantity: 1, line_total: invoice.subtotal }
-    ];
+    const items = (invoice.orders?.order_items && invoice.orders.order_items.length > 0)
+      ? invoice.orders.order_items
+      : (invoice.line_items || invoice.items || [
+          { item_name: 'Special Masala Chai & Refreshments', unit_price: invoice.subtotal, quantity: 1, line_total: invoice.subtotal }
+        ]);
 
     doc.font('Helvetica').fontSize(9).fillColor('#1A120B');
 

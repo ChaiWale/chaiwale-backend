@@ -26,6 +26,11 @@ export const createApp = (): Application => {
       // Allow requests with no origin (like mobile apps, server-side SSR, cron, or curl)
       if (!origin) return callback(null, true);
 
+      // Always allow local development origins (localhost on any port)
+      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+        return callback(null, true);
+      }
+
       // Check against configured allowed origins
       if (config.allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -36,17 +41,14 @@ export const createApp = (): Application => {
         return callback(null, false);
       }
 
-      // In development mode only: allow local development origins
-      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-        return callback(null, true);
-      }
-
       return callback(null, false);
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
   }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Baseline HTTP Security Headers
   app.use((_req: Request, res: Response, next: import('express').NextFunction) => {
