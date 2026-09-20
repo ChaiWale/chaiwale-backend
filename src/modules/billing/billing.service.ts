@@ -6,6 +6,7 @@ import {
   InvoiceFilters
 } from './billing.repository';
 import { getSupabaseAdminClient } from '../../config/supabase.config';
+import { KhataRepository } from '../khata/khata.repository';
 
 export interface GenerateInvoiceInput {
   orderId?: string;
@@ -158,6 +159,35 @@ export class BillingService {
       discountAmount: calculation.totalDiscount,
       grandTotal: calculation.roundedTotal
     });
+
+    // 4. If paymentMode is CREDIT, auto-log items directly to the customer's Khata ledger
+    if (input.paymentMode === 'CREDIT') {
+      try {
+        const targetOffice = await KhataRepository.findOrCreateOffice({
+          id: input.corporateClientId,
+          phone: input.customerPhone,
+          name: input.customerName,
+          company_name: input.department,
+          floor_unit: input.department
+        });
+
+        if (targetOffice) {
+          const entryDate = input.issueDate || new Date().toISOString().split('T')[0];
+          for (const it of input.items) {
+            await KhataRepository.addEntry({
+              office_id: targetOffice.id,
+              date: entryDate,
+              item_name: it.name,
+              quantity: it.quantity,
+              unit_price: it.unitPrice,
+              notes: `POS Bill #${invoice.invoiceNumber}`
+            });
+          }
+        }
+      } catch (khataErr) {
+        console.error('Failed to auto-record credit invoice into Khata ledger:', khataErr);
+      }
+    }
 
     return {
       invoice,

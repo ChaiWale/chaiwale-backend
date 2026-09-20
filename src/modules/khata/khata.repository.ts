@@ -150,6 +150,41 @@ export class KhataRepository {
     return newOffice;
   }
 
+  public static async findOrCreateOffice(criteria: {
+    id?: string;
+    phone?: string;
+    name?: string;
+    company_name?: string;
+    floor_unit?: string;
+  }): Promise<KhataOfficeRecord | null> {
+    const store = ensureLocalStore();
+    if (criteria.id) {
+      const byId = store.offices.find((o) => o.id === criteria.id);
+      if (byId) return byId;
+    }
+    const cleanPhone = criteria.phone ? criteria.phone.trim().replace(/\D/g, '').slice(-10) : '';
+    if (cleanPhone && cleanPhone.length >= 7) {
+      const byPhone = store.offices.find((o) => o.phone.replace(/\D/g, '').endsWith(cleanPhone));
+      if (byPhone) return byPhone;
+    }
+    if (criteria.name && criteria.name.trim()) {
+      const normName = criteria.name.trim().toLowerCase();
+      const byName = store.offices.find((o) => o.name.toLowerCase() === normName);
+      if (byName) return byName;
+    }
+    // If not found and we have a valid name and phone, auto-create
+    if (criteria.name && criteria.phone && criteria.phone.trim().replace(/\D/g, '').length >= 7) {
+      return this.createOffice({
+        name: criteria.name,
+        phone: criteria.phone,
+        company_name: criteria.company_name,
+        floor_unit: criteria.floor_unit,
+        notes: 'Auto-registered via Credit Billing'
+      });
+    }
+    return null;
+  }
+
   public static async addEntry(input: {
     office_id: string;
     date: string;
