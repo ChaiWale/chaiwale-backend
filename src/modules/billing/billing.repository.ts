@@ -71,13 +71,16 @@ export class BillingRepository {
     const outstandingAmount = isCredit ? input.grandTotal : 0;
     const issuedAt = input.issueDate ? new Date(input.issueDate).toISOString() : new Date().toISOString();
 
+    const isValidUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+    const validCorporateClientId = isValidUuid(input.corporateClientId) ? input.corporateClientId : null;
+
     // 1. Insert Invoice
     const { data: invData, error: invErr } = await admin
       .from('invoices')
       .insert({
         invoice_number: invoiceNumber,
         order_id: input.orderId || null,
-        corporate_client_id: input.corporateClientId || null,
+        corporate_client_id: validCorporateClientId,
         catering_quote_id: input.cateringQuoteId || null,
         invoice_type: input.invoiceType,
         department: input.department || null,
@@ -120,12 +123,12 @@ export class BillingRepository {
     }
 
     // 3. Ledger Synchronization for Corporate Credit or Customer Udhaar
-    if (input.corporateClientId) {
+    if (validCorporateClientId) {
       // Fetch current balance
       const { data: client } = await admin
         .from('corporate_clients')
         .select('outstanding_balance')
-        .eq('id', input.corporateClientId)
+        .eq('id', validCorporateClientId)
         .single();
 
       const currentBalance = client ? Number(client.outstanding_balance || 0) : 0;
@@ -136,12 +139,12 @@ export class BillingRepository {
         await admin
           .from('corporate_clients')
           .update({ outstanding_balance: newBalance, updated_at: new Date().toISOString() })
-          .eq('id', input.corporateClientId);
+          .eq('id', validCorporateClientId);
       }
 
       // Record Ledger Debit Entry
       await admin.from('ledger_entries').insert({
-        corporate_client_id: input.corporateClientId,
+        corporate_client_id: validCorporateClientId,
         invoice_id: invData.id,
         payment_id: paymentId,
         entry_type: 'DEBIT',
@@ -155,7 +158,7 @@ export class BillingRepository {
       // If immediately paid, record corresponding Ledger Credit Entry
       if (!isCredit && paymentId) {
         await admin.from('ledger_entries').insert({
-          corporate_client_id: input.corporateClientId,
+          corporate_client_id: validCorporateClientId,
           invoice_id: invData.id,
           payment_id: paymentId,
           entry_type: 'CREDIT',
