@@ -119,13 +119,12 @@ export class PdfGenerator {
       .fillColor(BUSINESS_CONFIG.colors.secondary)
       .fontSize(8.5)
       .font('Helvetica')
-      .text(BUSINESS_CONFIG.tagline, textX, 56)
-      .text(BUSINESS_CONFIG.address.full, textX, 68, { width: 440 })
-      .text(`Phone: ${BUSINESS_CONFIG.contact.phone} | Email: ${BUSINESS_CONFIG.contact.supportEmail} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 81);
+      .text(BUSINESS_CONFIG.address.full, textX, 60, { width: 440 })
+      .text(`Phone: ${BUSINESS_CONFIG.contact.phone} | Email: ${BUSINESS_CONFIG.contact.supportEmail} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 74);
 
     doc
-      .moveTo(40, 98)
-      .lineTo(555, 98)
+      .moveTo(40, 92)
+      .lineTo(555, 92)
       .strokeColor('#E2D7CE')
       .lineWidth(1)
       .stroke();
@@ -135,7 +134,7 @@ export class PdfGenerator {
       .fillColor('#1A120B')
       .fontSize(15)
       .font('Helvetica-Bold')
-      .text(isCorporate ? 'INVOICE (CORPORATE)' : 'RETAIL TAX INVOICE', 40, 110);
+      .text(isCorporate ? 'INVOICE (CORPORATE)' : 'RETAIL TAX INVOICE', 40, 104);
 
     const issueDateStr = invoice.issued_at
       ? new Date(invoice.issued_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })
@@ -145,18 +144,18 @@ export class PdfGenerator {
       .fontSize(9.5)
       .font('Helvetica')
       .fillColor('#334155')
-      .text(`Invoice No: ${this.cleanPdfText(invoice.invoice_number)}`, 40, 130)
-      .text(`Date: ${issueDateStr}`, 40, 144)
-      .text(`Payment Status: ${this.cleanPdfText(invoice.status)}`, 40, 158);
+      .text(`Invoice No: ${this.cleanPdfText(invoice.invoice_number)}`, 40, 124)
+      .text(`Date: ${issueDateStr}`, 40, 138)
+      .text(`Payment Status: ${this.cleanPdfText(invoice.status)}`, 40, 152);
 
     if (invoice.department) {
-      doc.text(`Department / Note: ${this.cleanPdfText(invoice.department)}`, 40, 172);
+      doc.text(`Department / Note: ${this.cleanPdfText(invoice.department)}`, 40, 166);
     }
 
     // Status Stamp Box on Right
     const statusColor = isPaid ? '#10B981' : isPartial ? '#F59E0B' : '#EF4444';
     doc
-      .rect(420, 108, 135, 30)
+      .rect(420, 102, 135, 30)
       .strokeColor(statusColor)
       .lineWidth(2)
       .stroke();
@@ -165,10 +164,10 @@ export class PdfGenerator {
       .fillColor(statusColor)
       .fontSize(12)
       .font('Helvetica-Bold')
-      .text(this.cleanPdfText(invoice.status), 420, 117, { width: 135, align: 'center' });
+      .text(this.cleanPdfText(invoice.status), 420, 111, { width: 135, align: 'center' });
 
     // Client / Customer Info Box
-    const clientY = invoice.department ? 195 : 180;
+    const clientY = invoice.department ? 188 : 174;
     doc
       .rect(40, clientY, 515, 54)
       .fillColor('#FAF7F5')
@@ -347,21 +346,20 @@ export class PdfGenerator {
       .fillColor(BUSINESS_CONFIG.colors.secondary)
       .fontSize(8)
       .font('Helvetica')
-      .text('OFFICIAL PAYMENT RECEIPT', textX, 46)
-      .text(`${BUSINESS_CONFIG.address.locality}, ${BUSINESS_CONFIG.address.city} | ${BUSINESS_CONFIG.contact.phone}`, textX, 56);
+      .text(`${BUSINESS_CONFIG.address.locality}, ${BUSINESS_CONFIG.address.city} | ${BUSINESS_CONFIG.contact.phone}`, textX, 48);
 
-    doc.moveTo(40, 72).lineTo(380, 72).strokeColor('#E2D7CE').stroke();
+    doc.moveTo(40, 64).lineTo(380, 64).strokeColor('#E2D7CE').stroke();
 
     doc
       .fillColor('#1A120B')
       .fontSize(10)
       .font('Helvetica')
-      .text(`Receipt ID: ${payment.id || 'REC-' + Date.now().toString().slice(-6)}`, 40, 85)
-      .text(`Date: ${new Date(payment.paid_at || Date.now()).toLocaleDateString('en-IN')}`, 40, 100)
-      .text(`Payment Mode: ${payment.payment_mode}`, 40, 115);
+      .text(`Receipt ID: ${payment.id || 'REC-' + Date.now().toString().slice(-6)}`, 40, 78)
+      .text(`Date: ${new Date(payment.paid_at || Date.now()).toLocaleDateString('en-IN')}`, 40, 93)
+      .text(`Payment Mode: ${payment.payment_mode}`, 40, 108);
 
     if (payment.transaction_ref) {
-      doc.text(`UTR / Reference: ${payment.transaction_ref}`, 40, 130);
+      doc.text(`UTR / Reference: ${payment.transaction_ref}`, 40, 123);
     }
 
     doc
@@ -409,19 +407,25 @@ export class PdfGenerator {
       .fillColor(BUSINESS_CONFIG.colors.primary)
       .fontSize(22)
       .font('Helvetica-Bold')
-      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 36)
-      .fontSize(11)
-      .fillColor('#1A120B')
-      .text('STATEMENT OF ACCOUNT', textX, 60);
+      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 36);
 
     doc
       .fontSize(9)
       .font('Helvetica')
       .fillColor(BUSINESS_CONFIG.colors.secondary)
-      .text(`${BUSINESS_CONFIG.address.full} | ${BUSINESS_CONFIG.contact.phone}`, textX, 74)
-      .text(`Company: ${statement.client?.company_name}`, 40, 96)
-      .text(`GSTIN: ${statement.client?.gstin || 'N/A'}`, 40, 110)
-      .text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 40, 124);
+      .text(`${BUSINESS_CONFIG.address.full} | ${BUSINESS_CONFIG.contact.phone}`, textX, 62, { width: 440 });
+
+    doc
+      .fillColor('#1A120B')
+      .fontSize(11)
+      .font('Helvetica-Bold')
+      .text('STATEMENT OF ACCOUNT', 40, 82)
+      .fontSize(9)
+      .font('Helvetica')
+      .fillColor(BUSINESS_CONFIG.colors.secondary)
+      .text(`Company: ${statement.client?.company_name}`, 40, 100)
+      .text(`GSTIN: ${statement.client?.gstin || 'N/A'}`, 40, 114)
+      .text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 40, 128);
 
     // Summary Box
     doc.rect(40, 140, 515, 45).fillColor('#FAF7F5').fill().strokeColor('#E2D7CE').stroke();
@@ -533,22 +537,21 @@ export class PdfGenerator {
       .fontSize(10.5)
       .font('Helvetica-Bold')
       .fillColor('#1E293B')
-      .text('OFFICIAL KHATA BILL & ACCOUNT STATEMENT', textX, 56);
+      .text('OFFICIAL KHATA BILL & ACCOUNT STATEMENT', textX, 58);
 
     doc
       .fontSize(8)
       .font('Helvetica')
       .fillColor(BUSINESS_CONFIG.colors.secondary)
-      .text('Vardhman Grand Plaza, Rohini, New Delhi | Phone: +91 93101 12564 | Web: chaiwale.co.in', textX, 72, { width: 450 })
-      .text('Email: support@chaiwale.co.in | Store Lead: Sunil Kumar', textX, 84, { width: 450 });
+      .text('Vardhman Grand Plaza, Rohini, New Delhi | Phone: +91 93101 12564 | Web: chaiwale.co.in | Email: support@chaiwale.co.in', textX, 74, { width: 450 });
 
     // Decorative header line
-    doc.moveTo(40, 102).lineTo(555, 102).strokeColor('#E2D7CE').lineWidth(1.5).stroke();
+    doc.moveTo(40, 90).lineTo(555, 90).strokeColor('#E2D7CE').lineWidth(1.5).stroke();
 
     // ─────────────────────────────────────────────────────────────
     // Customer & Period Details Card (Two distinct non-overlapping columns)
     // ─────────────────────────────────────────────────────────────
-    let curY = 112;
+    let curY = 100;
     const cardHeight = 74;
     doc.rect(40, curY, 515, cardHeight).fillColor('#F8FAFC').fill().strokeColor('#CBD5E1').lineWidth(1).stroke();
 
