@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { KhataRepository } from './khata.repository';
 import { ApiResponse } from '../../types/common.types';
+import { ExcelGenerator } from '../documents/excel.generator';
+import { PdfGenerator } from '../documents/pdf.generator';
 
 export class KhataController {
   public static async getOffices(_req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
@@ -177,9 +179,75 @@ export class KhataController {
     }
   }
 
+  /**
+   * Export Date-wise Khata Excel Workbook (.xlsx)
+   */
+  public static async exportKhataExcel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const officeId = req.query.office_id as string | undefined;
+
+      const reportData = await KhataRepository.getAllKhataDatewiseReport(startDate, endDate, officeId);
+      const excelBuffer = await ExcelGenerator.generateKhataDatewiseReport(reportData);
+
+      const fileName = `Chaiwale_Khata_${startDate || 'all'}_to_${endDate || 'latest'}_${Date.now()}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(excelBuffer);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Stream / Download Customer Date-wise Khata PDF Bill
+   * Accessible by authenticated staff or customer using their 4-digit PIN
+   */
+  public static async getKhataStatementPdf(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { officeId } = req.params;
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const pin = (req.query.pin as string | undefined)?.trim();
+      const token = (req.headers.authorization?.replace('Bearer ', '') || (req.query.token as string))?.trim();
+
+      const statement = await KhataRepository.getOfficeStatement(officeId, startDate, endDate);
+      if (!statement || !statement.office) {
+        res.status(404).json({ success: false, message: 'Khata customer not found' });
+        return;
+      }
+
+      // Security Check: Either staff auth token OR customer's 4-digit PIN must be provided
+      const officePin = statement.office.client_pin;
+      const isAuthorizedPin = pin && officePin && pin === officePin;
+      const hasToken = Boolean(token);
+
+      if (!hasToken && !isAuthorizedPin) {
+        res.status(401).json({
+          success: false,
+          message: 'Access denied. Please provide staff authentication or valid 4-digit Khata PIN.'
+        });
+        return;
+      }
+
+      const pdfBuffer = await PdfGenerator.generateKhataStatementPdf(statement, { startDate, endDate });
+
+      const safeOfficeName = statement.office.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `Chaiwale_Khata_${safeOfficeName}_${startDate || 'start'}_to_${endDate || 'latest'}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      res.send(pdfBuffer);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   private static generatePin(): string {
     // 4-digit numerical PIN (1000 - 9999)
     return Math.floor(1000 + Math.random() * 9000).toString();
   }
 }
+
 

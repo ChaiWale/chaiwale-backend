@@ -20,6 +20,8 @@ router.delete('/entries/:id', requireAuth, KhataController.deleteEntry);
 router.post('/payments', requireAuth, KhataController.addPayment);
 router.delete('/payments/:id', requireAuth, KhataController.deletePayment);
 router.get('/statement/:officeId', requireAuth, KhataController.getOfficeStatement);
+router.get('/statement/:officeId/pdf', KhataController.getKhataStatementPdf);
+router.get('/export/excel', requireAuth, KhataController.exportKhataExcel);
 
 export const khataRoutes = router;
 

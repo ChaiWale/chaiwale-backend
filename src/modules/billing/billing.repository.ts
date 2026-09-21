@@ -328,7 +328,14 @@ export class BillingRepository {
           id,
           order_number,
           order_type,
-          payment_mode
+          payment_mode,
+          delivery_address,
+          order_items (
+            item_name,
+            unit_price,
+            quantity,
+            line_total
+          )
         )
       `)
       .order('issued_at', { ascending: false });

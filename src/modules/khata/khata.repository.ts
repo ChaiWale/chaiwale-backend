@@ -753,4 +753,173 @@ export class KhataRepository {
     saveLocalStore(store);
     return true;
   }
+
+  /**
+   * Aggregated Date-wise Khata Report across all offices or single office
+   */
+  public static async getAllKhataDatewiseReport(
+    startDate?: string,
+    endDate?: string,
+    officeId?: string
+  ) {
+    const offices = await this.getOffices();
+    const officeMap = new Map(offices.map((o) => [o.id, o]));
+
+    const targetOffices = officeId
+      ? offices.filter((o) => o.id === officeId)
+      : offices;
+
+    const supabase = getSupabaseAdminClient();
+    let entries: any[] = [];
+    let payments: any[] = [];
+
+    if (supabase) {
+      try {
+        let entQ = supabase.from('khata_entries').select('*');
+        let payQ = supabase.from('khata_payments').select('*');
+
+        if (officeId) {
+          entQ = entQ.eq('office_id', officeId);
+          payQ = payQ.eq('office_id', officeId);
+        }
+        if (startDate) {
+          entQ = entQ.gte('date', startDate);
+          payQ = payQ.gte('date', startDate);
+        }
+        if (endDate) {
+          entQ = entQ.lte('date', endDate);
+          payQ = payQ.lte('date', endDate);
+        }
+
+        const [eRes, pRes] = await Promise.all([
+          entQ.order('date', { ascending: true }),
+          payQ.order('date', { ascending: true })
+        ]);
+
+        entries = (eRes.data || []).map((e: any) => ({
+          ...e,
+          quantity: Number(e.quantity),
+          unit_price: Number(e.unit_price),
+          total_amount: Number(e.total_amount)
+        }));
+
+        payments = (pRes.data || []).map((p: any) => ({
+          ...p,
+          amount: Number(p.amount)
+        }));
+      } catch (err: any) {
+        console.error('[KHATA] Supabase getAllKhataDatewiseReport error, fallback to local:', err.message);
+      }
+    }
+
+    if (entries.length === 0 && payments.length === 0) {
+      const store = ensureLocalStore();
+      entries = store.entries.filter((e) => {
+        if (officeId && e.office_id !== officeId) return false;
+        if (startDate && e.date < startDate) return false;
+        if (endDate && e.date > endDate) return false;
+        return true;
+      });
+
+      payments = store.payments.filter((p) => {
+        if (officeId && p.office_id !== officeId) return false;
+        if (startDate && p.date < startDate) return false;
+        if (endDate && p.date > endDate) return false;
+        return true;
+      });
+
+      entries.sort((a, b) => a.date.localeCompare(b.date));
+      payments.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    // Attach office meta to entries and payments
+    const enrichedEntries = entries.map((e) => {
+      const off = officeMap.get(e.office_id);
+      return {
+        ...e,
+        office_name: off?.name || 'Walk-in / Direct Khata',
+        company_name: off?.company_name,
+        phone: off?.phone,
+        building: [off?.company_name, off?.floor_unit].filter(Boolean).join(' • ')
+      };
+    });
+
+    const enrichedPayments = payments.map((p) => {
+      const off = officeMap.get(p.office_id);
+      return {
+        ...p,
+        office_name: off?.name || 'Customer Payment',
+        phone: off?.phone,
+        building: [off?.company_name, off?.floor_unit].filter(Boolean).join(' • ')
+      };
+    });
+
+    // Aggregate by Date
+    const dailyMap = new Map<string, {
+      customers: Set<string>;
+      consumption: number;
+      payments: number;
+    }>();
+
+    for (const e of enrichedEntries) {
+      if (!dailyMap.has(e.date)) {
+        dailyMap.set(e.date, { customers: new Set(), consumption: 0, payments: 0 });
+      }
+      const day = dailyMap.get(e.date)!;
+      day.customers.add(e.office_id);
+      day.consumption += e.total_amount;
+    }
+
+    for (const p of enrichedPayments) {
+      if (!dailyMap.has(p.date)) {
+        dailyMap.set(p.date, { customers: new Set(), consumption: 0, payments: 0 });
+      }
+      const day = dailyMap.get(p.date)!;
+      day.customers.add(p.office_id);
+      day.payments += p.amount;
+    }
+
+    const sortedDates = Array.from(dailyMap.keys()).sort();
+    const dailySummaries = sortedDates.map((date) => {
+      const d = dailyMap.get(date)!;
+      return {
+        date,
+        customersCount: d.customers.size,
+        consumptionTotal: d.consumption,
+        paymentsTotal: d.payments,
+        netChange: d.consumption - d.payments
+      };
+    });
+
+    // Customer Balances for Sheet 4
+    const customerBalances = targetOffices.map((off) => {
+      const offEntries = enrichedEntries.filter((e) => e.office_id === off.id);
+      const offPayments = enrichedPayments.filter((p) => p.office_id === off.id);
+
+      const periodConsumption = offEntries.reduce((s, e) => s + e.total_amount, 0);
+      const periodPayments = offPayments.reduce((s, p) => s + p.amount, 0);
+
+      return {
+        office_id: off.id,
+        office_name: off.name,
+        company_name: off.company_name,
+        phone: off.phone,
+        building: [off.company_name, off.floor_unit].filter(Boolean).join(' • '),
+        periodConsumption,
+        periodPayments,
+        currentBalanceDue: off.balance_due,
+        client_pin: off.client_pin
+      };
+    });
+
+    return {
+      startDate,
+      endDate,
+      dailySummaries,
+      entries: enrichedEntries,
+      payments: enrichedPayments,
+      customerBalances
+    };
+  }
 }
+

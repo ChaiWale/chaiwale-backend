@@ -393,4 +393,297 @@ export class PdfGenerator {
 
     return this.streamToBuffer(doc);
   }
+
+  /**
+   * Helper to strip emoji and unicode characters that PDFKit built-in fonts cannot render
+   */
+  private static cleanPdfText(val: any): string {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    return str
+      .replace(/₹/g, 'Rs. ')
+      .replace(/•/g, '-')
+      // Strip emojis and non-printable unicode glyphs
+      .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F2FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+      .replace(/[^\x20-\x7E\r\n\t]/g, '')
+      .trim();
+  }
+
+  /**
+   * Helper: Resolves verified Chaiwale brand UPI QR code image file path
+   */
+  private static getUpiQrPath(): string | null {
+    const possibleQrPaths = [
+      path.resolve(process.cwd(), 'assets/chaiwale-upi-qr.jpeg'),
+      path.resolve(process.cwd(), '../billbook/public/assets/chaiwale-upi-qr.jpeg'),
+      path.resolve(__dirname, '../../../assets/chaiwale-upi-qr.jpeg'),
+      path.resolve(__dirname, '../../../../billbook/public/assets/chaiwale-upi-qr.jpeg'),
+      path.resolve(__dirname, '../../../../assets/chaiwale-upi-qr.jpeg')
+    ];
+    for (const p of possibleQrPaths) {
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
+
+  /**
+   * Generate Full Date-wise Khata Bill & Account Statement PDF for Customer
+   */
+  public static async generateKhataStatementPdf(
+    statement: {
+      office: {
+        id: string;
+        name: string;
+        company_name?: string;
+        phone?: string;
+        floor_unit?: string;
+        client_pin?: string;
+      };
+      dateGroups: {
+        date: string;
+        items: {
+          item_name: string;
+          quantity: number;
+          unit_price: number;
+          total_amount: number;
+        }[];
+        dateTotal: number;
+      }[];
+      payments: {
+        date: string;
+        amount: number;
+        payment_mode: string;
+        notes?: string;
+      }[];
+      totalConsumption: number;
+      totalPayments: number;
+      balanceDue: number;
+    },
+    options?: {
+      startDate?: string;
+      endDate?: string;
+    }
+  ): Promise<Buffer> {
+    const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
+
+    const logoPath = this.getLogoPath();
+    let textX = 40;
+    if (logoPath) {
+      try {
+        doc.image(logoPath, 40, 32, { width: 46, height: 46 });
+        textX = 98;
+      } catch {
+        textX = 40;
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Header Branding (Spaced without overlap)
+    // ─────────────────────────────────────────────────────────────
+    doc
+      .fillColor(BUSINESS_CONFIG.colors.primary)
+      .fontSize(22)
+      .font('Helvetica-Bold')
+      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 30);
+
+    doc
+      .fontSize(10.5)
+      .font('Helvetica-Bold')
+      .fillColor('#1E293B')
+      .text('OFFICIAL KHATA BILL & ACCOUNT STATEMENT', textX, 56);
+
+    doc
+      .fontSize(8)
+      .font('Helvetica')
+      .fillColor(BUSINESS_CONFIG.colors.secondary)
+      .text('Vardhman Grand Plaza, Rohini, New Delhi | Phone: +91 93101 12564 | Web: chaiwale.co.in', textX, 72, { width: 450 })
+      .text('Email: support@chaiwale.co.in | Store Lead: Sunil Kumar', textX, 84, { width: 450 });
+
+    // Decorative header line
+    doc.moveTo(40, 102).lineTo(555, 102).strokeColor('#E2D7CE').lineWidth(1.5).stroke();
+
+    // ─────────────────────────────────────────────────────────────
+    // Customer & Period Details Card (Two distinct non-overlapping columns)
+    // ─────────────────────────────────────────────────────────────
+    let curY = 112;
+    const cardHeight = 74;
+    doc.rect(40, curY, 515, cardHeight).fillColor('#F8FAFC').fill().strokeColor('#CBD5E1').lineWidth(1).stroke();
+
+    const rangeLabel = options?.startDate && options?.endDate
+      ? `${options.startDate} to ${options.endDate}`
+      : options?.startDate
+      ? `From ${options.startDate}`
+      : 'All Recorded Transactions';
+
+    // Left Column: Customer Info (Strict width 250px)
+    doc.fillColor('#64748B').fontSize(8).font('Helvetica-Bold').text('CUSTOMER / OFFICE DETAILS', 52, curY + 8, { width: 250 });
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#C85A17').text(this.cleanPdfText(statement.office.name), 52, curY + 20, { width: 250, ellipsis: true });
+
+    const locationText = [statement.office.company_name, statement.office.floor_unit].filter(Boolean).join(', ') || 'Gurgaon Counter Khata';
+    doc.fontSize(8.5).font('Helvetica').fillColor('#334155')
+      .text(`Location: ${this.cleanPdfText(locationText)}`, 52, curY + 36, { width: 250, height: 16, ellipsis: true })
+      .text(`Phone: ${this.cleanPdfText(statement.office.phone || 'N/A')}`, 52, curY + 52, { width: 250 });
+
+    // Center Vertical Line inside card
+    doc.moveTo(310, curY + 6).lineTo(310, curY + cardHeight - 6).strokeColor('#E2E8F0').lineWidth(1).stroke();
+
+    // Right Column: Statement Meta & 4-digit PIN (Strict X 325px, width 220px)
+    doc.fillColor('#64748B').fontSize(8).font('Helvetica-Bold').text('STATEMENT METADATA', 325, curY + 8, { width: 220 });
+
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#1E293B').text('Period:', 325, curY + 22);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#334155').text(this.cleanPdfText(rangeLabel), 415, curY + 22, { width: 130 });
+
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#1E293B').text('Generated Date:', 325, curY + 37);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#334155').text(new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 415, curY + 37, { width: 130 });
+
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#1E293B').text('Khata Portal PIN:', 325, curY + 52);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#2563EB').text(this.cleanPdfText(statement.office.client_pin || '----'), 415, curY + 51, { width: 130 });
+
+    // ─────────────────────────────────────────────────────────────
+    // Summary Highlight Banner (Consumption vs Paid vs Net Overdue)
+    // ─────────────────────────────────────────────────────────────
+    curY += cardHeight + 10;
+    doc.rect(40, curY, 515, 48).fillColor('#FAF7F5').fill().strokeColor('#E2D7CE').stroke();
+
+    // Box 1: Total Consumption
+    doc.fillColor('#64748B').fontSize(8.5).font('Helvetica-Bold').text('TOTAL CONSUMPTION', 55, curY + 10);
+    doc.fillColor('#0F172A').fontSize(13).font('Helvetica-Bold').text(`Rs. ${statement.totalConsumption.toFixed(2)}`, 55, curY + 24);
+
+    // Box 2: Total Paid
+    doc.fillColor('#64748B').fontSize(8.5).font('Helvetica-Bold').text('TOTAL PAID', 230, curY + 10);
+    doc.fillColor('#16A34A').fontSize(13).font('Helvetica-Bold').text(`Rs. ${statement.totalPayments.toFixed(2)}`, 230, curY + 24);
+
+    // Box 3: Net Overdue
+    const isOverdue = statement.balanceDue > 0;
+    doc.fillColor(isOverdue ? '#DC2626' : '#16A34A').fontSize(8.5).font('Helvetica-Bold').text(isOverdue ? 'NET OVERDUE BALANCE' : 'KHATA BALANCE', 390, curY + 10);
+    doc.fillColor(isOverdue ? '#DC2626' : '#16A34A').fontSize(14).font('Helvetica-Bold').text(`Rs. ${statement.balanceDue.toFixed(2)}`, 390, curY + 24);
+
+    curY += 58;
+
+    // ─────────────────────────────────────────────────────────────
+    // Table 1: Daily Date-wise Consumption Breakdown
+    // ─────────────────────────────────────────────────────────────
+    const checkPageOverflow = (neededHeight: number) => {
+      if (curY + neededHeight > 750) {
+        doc.addPage();
+        curY = 45;
+      }
+    };
+
+    checkPageOverflow(50);
+    doc.fillColor('#0F172A').fontSize(11).font('Helvetica-Bold').text('Date-wise Item Consumption Breakdown:', 40, curY);
+    curY += 16;
+
+    // Table Header
+    doc.rect(40, curY, 515, 20).fillColor('#6F432A').fill();
+    doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold')
+      .text('Item Description (Food, Tea, Drinks, Tobacco)', 50, curY + 5)
+      .text('Rate (Rs.)', 330, curY + 5, { width: 60, align: 'right' })
+      .text('Qty', 410, curY + 5, { width: 40, align: 'center' })
+      .text('Amount (Rs.)', 465, curY + 5, { width: 80, align: 'right' });
+    curY += 20;
+
+    if (statement.dateGroups.length === 0) {
+      doc.rect(40, curY, 515, 24).fillColor('#FFFFFF').fill().strokeColor('#E2E8F0').stroke();
+      doc.fillColor('#64748B').fontSize(9).font('Helvetica').text('No consumption entries recorded for this period.', 50, curY + 7);
+      curY += 28;
+    } else {
+      statement.dateGroups.forEach((dg) => {
+        checkPageOverflow(30 + dg.items.length * 18);
+
+        // Date Group Bar (Clean ASCII Date)
+        doc.rect(40, curY, 515, 18).fillColor('#FEF3C7').fill().strokeColor('#FDE68A').stroke();
+        doc.fillColor('#92400E').fontSize(9).font('Helvetica-Bold')
+          .text(`Date: ${this.cleanPdfText(dg.date)}`, 48, curY + 4)
+          .text(`Day Total: Rs. ${dg.dateTotal.toFixed(2)}`, 425, curY + 4, { width: 120, align: 'right' });
+        curY += 18;
+
+        // Items in this date
+        dg.items.forEach((it, idx) => {
+          checkPageOverflow(20);
+          const bg = idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+          doc.rect(40, curY, 515, 17).fillColor(bg).fill();
+
+          doc.fillColor('#1E293B').fontSize(8.5).font('Helvetica')
+            .text(this.cleanPdfText(it.item_name), 56, curY + 4, { width: 270, ellipsis: true })
+            .text(`${Number(it.unit_price).toFixed(2)}`, 330, curY + 4, { width: 60, align: 'right' })
+            .text(String(it.quantity), 410, curY + 4, { width: 40, align: 'center' })
+            .text(`${Number(it.total_amount).toFixed(2)}`, 465, curY + 4, { width: 80, align: 'right' });
+
+          curY += 17;
+        });
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Table 2: Payments History
+    // ─────────────────────────────────────────────────────────────
+    if (statement.payments.length > 0) {
+      curY += 12;
+      checkPageOverflow(50 + statement.payments.length * 18);
+
+      doc.fillColor('#0F172A').fontSize(11).font('Helvetica-Bold').text('Payments & Settlements Received:', 40, curY);
+      curY += 16;
+
+      doc.rect(40, curY, 515, 20).fillColor('#15803D').fill();
+      doc.fillColor('#FFFFFF').fontSize(9).font('Helvetica-Bold')
+        .text('Date', 50, curY + 5)
+        .text('Payment Mode', 140, curY + 5)
+        .text('Transaction Details / Reference', 240, curY + 5)
+        .text('Amount Paid (Rs.)', 445, curY + 5, { width: 100, align: 'right' });
+      curY += 20;
+
+      statement.payments.forEach((p, idx) => {
+        checkPageOverflow(20);
+        const bg = idx % 2 === 0 ? '#FFFFFF' : '#F0FDF4';
+        doc.rect(40, curY, 515, 18).fillColor(bg).fill();
+
+        doc.fillColor('#1E293B').fontSize(8.5).font('Helvetica')
+          .text(this.cleanPdfText(p.date), 50, curY + 4)
+          .text(this.cleanPdfText(p.payment_mode), 140, curY + 4)
+          .text(this.cleanPdfText(p.notes || 'Khata Payment Settlement'), 240, curY + 4, { width: 200, ellipsis: true })
+          .fillColor('#15803D').font('Helvetica-Bold')
+          .text(`Rs. ${Number(p.amount).toFixed(2)}`, 445, curY + 4, { width: 100, align: 'right' });
+
+        curY += 18;
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Payment Instructions (English) & Real Chaiwale UPI QR Code
+    // ─────────────────────────────────────────────────────────────
+    checkPageOverflow(95);
+    curY += 14;
+
+    const upiQrPath = this.getUpiQrPath();
+    const payBoxHeight = upiQrPath ? 72 : 62;
+
+    doc.rect(40, curY, 515, payBoxHeight).fillColor('#FFFBEB').fill().strokeColor('#FDE68A').stroke();
+    doc.fillColor('#92400E').fontSize(9.5).font('Helvetica-Bold').text('Payment Instructions & Account Verification:', 50, curY + 7);
+
+    const textWidth = upiQrPath ? 415 : 500;
+    doc.fillColor('#78350F').fontSize(8.5).font('Helvetica')
+      .text('- Please settle your outstanding balance via UPI / QR scan or Cash at the counter.', 50, curY + 20, { width: textWidth })
+      .text(`- Verified Chaiwale UPI: chaiwale@ptyes | Contact Lead: +91 93101 12564`, 50, curY + 32, { width: textWidth })
+      .text(`- Customer Portal: Check live statement anytime at https://chaiwale.co.in/check-bill (PIN: ${this.cleanPdfText(statement.office.client_pin || '----')})`, 50, curY + 44, { width: textWidth })
+      .text('- For any discrepancy or query, please contact store lead: +91 93101 12564', 50, curY + 56, { width: textWidth });
+
+    // Render Genuine Chaiwale UPI QR image on the right
+    if (upiQrPath) {
+      try {
+        doc.image(upiQrPath, 474, curY + 6, { width: 56, height: 56 });
+        doc.fontSize(7).font('Helvetica-Bold').fillColor('#92400E').text('SCAN TO PAY', 466, curY + 63, { width: 72, align: 'center' });
+      } catch {
+        // Safe fallback if image decoding has an issue
+      }
+    }
+
+    curY += payBoxHeight + 10;
+    doc.fontSize(8).font('Helvetica').fillColor('#94A3B8')
+      .text('This is an official computer-generated account bill from Chaiwale. No signature required.', 40, curY, { align: 'center', width: 515 });
+
+    return this.streamToBuffer(doc);
+  }
 }
+
+
