@@ -96,6 +96,21 @@ export class BillingService {
       billType: input.invoiceType
     });
 
+    // Compute effective ISO date/time: if only date string is provided, combine with current time
+    const resolveEffectiveIssueDate = (issueDate?: string): string => {
+      if (!issueDate) return new Date().toISOString();
+      const trimmed = issueDate.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        const now = new Date();
+        const d = new Date(trimmed);
+        d.setUTCHours(now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds());
+        return d.toISOString();
+      }
+      const parsed = new Date(trimmed);
+      return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+    };
+    const effectiveIssueDate = resolveEffectiveIssueDate(input.issueDate);
+
     // 2. If no orderId provided (direct POS billing), auto-create orders + order_items record so line items and customer details are tracked and printable in KOT & PDF!
     let effectiveOrderId = input.orderId;
     const admin = getSupabaseAdminClient();
@@ -120,7 +135,7 @@ export class BillingService {
             payment_status: input.paymentMode === 'CREDIT' ? 'PENDING' : 'PAID',
             payment_mode: input.paymentMode || 'CASH',
             transaction_ref: input.transactionRef || null,
-            created_at: input.issueDate ? new Date(input.issueDate).toISOString() : new Date().toISOString()
+            created_at: effectiveIssueDate
           })
           .select('id')
           .single();
@@ -151,7 +166,7 @@ export class BillingService {
       department: input.department || (input.customerName ? `${input.customerName}${input.customerPhone ? ` (${input.customerPhone})` : ''}` : undefined),
       customerName: input.customerName,
       customerPhone: input.customerPhone,
-      issueDate: input.issueDate,
+      issueDate: effectiveIssueDate,
       paymentMode: input.paymentMode,
       transactionRef: input.transactionRef,
       subtotal: calculation.subtotal,

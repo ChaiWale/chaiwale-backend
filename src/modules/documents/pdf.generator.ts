@@ -91,7 +91,7 @@ export class PdfGenerator {
    * Generate Clean Vector PDF for Customer or Corporate Invoice
    */
   public static async generateInvoicePdf(invoice: any): Promise<Buffer> {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
 
     const isCorporate = invoice.invoice_type === 'CORPORATE_CREDIT';
     const isPaid = invoice.status === 'PAID';
@@ -102,8 +102,8 @@ export class PdfGenerator {
     let textX = 40;
     if (logoPath) {
       try {
-        doc.image(logoPath, 40, 36, { width: 50, height: 50 });
-        textX = 100;
+        doc.image(logoPath, 40, 34, { width: 48, height: 48 });
+        textX = 98;
       } catch {
         textX = 40;
       }
@@ -113,45 +113,50 @@ export class PdfGenerator {
       .fillColor(BUSINESS_CONFIG.colors.primary)
       .fontSize(22)
       .font('Helvetica-Bold')
-      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 36);
+      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 34);
 
     doc
       .fillColor(BUSINESS_CONFIG.colors.secondary)
-      .fontSize(9)
+      .fontSize(8.5)
       .font('Helvetica')
-      .text(BUSINESS_CONFIG.tagline, textX, 58)
-      .text(BUSINESS_CONFIG.address.full, textX, 70, { width: 440 })
-      .text(`Phone: ${BUSINESS_CONFIG.contact.phone} | Email: ${BUSINESS_CONFIG.contact.supportEmail} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 84);
+      .text(BUSINESS_CONFIG.tagline, textX, 56)
+      .text(BUSINESS_CONFIG.address.full, textX, 68, { width: 440 })
+      .text(`Phone: ${BUSINESS_CONFIG.contact.phone} | Email: ${BUSINESS_CONFIG.contact.supportEmail} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 81);
 
     doc
-      .moveTo(40, 106)
-      .lineTo(555, 106)
+      .moveTo(40, 98)
+      .lineTo(555, 98)
       .strokeColor('#E2D7CE')
       .lineWidth(1)
       .stroke();
 
-    // Document Title & Number
+    // Document Title & Metadata
     doc
       .fillColor('#1A120B')
-      .fontSize(16)
+      .fontSize(15)
       .font('Helvetica-Bold')
-      .text(isCorporate ? 'INVOICE (CORPORATE)' : 'RETAIL INVOICE', 40, 120);
+      .text(isCorporate ? 'INVOICE (CORPORATE)' : 'RETAIL TAX INVOICE', 40, 110);
+
+    const issueDateStr = invoice.issued_at
+      ? new Date(invoice.issued_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })
+      : new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
 
     doc
-      .fontSize(10)
+      .fontSize(9.5)
       .font('Helvetica')
-      .text(`Invoice No: ${invoice.invoice_number}`, 40, 140)
-      .text(`Date: ${new Date(invoice.issued_at || Date.now()).toLocaleDateString('en-IN')}`, 40, 155)
-      .text(`Invoice Type: ${invoice.invoice_type}`, 40, 170);
+      .fillColor('#334155')
+      .text(`Invoice No: ${this.cleanPdfText(invoice.invoice_number)}`, 40, 130)
+      .text(`Date: ${issueDateStr}`, 40, 144)
+      .text(`Payment Status: ${this.cleanPdfText(invoice.status)}`, 40, 158);
 
     if (invoice.department) {
-      doc.text(`Department: ${invoice.department}`, 40, 180);
+      doc.text(`Department / Note: ${this.cleanPdfText(invoice.department)}`, 40, 172);
     }
 
     // Status Stamp Box on Right
     const statusColor = isPaid ? '#10B981' : isPartial ? '#F59E0B' : '#EF4444';
     doc
-      .rect(420, 115, 135, 30)
+      .rect(420, 108, 135, 30)
       .strokeColor(statusColor)
       .lineWidth(2)
       .stroke();
@@ -160,12 +165,12 @@ export class PdfGenerator {
       .fillColor(statusColor)
       .fontSize(12)
       .font('Helvetica-Bold')
-      .text(invoice.status, 420, 124, { width: 135, align: 'center' });
+      .text(this.cleanPdfText(invoice.status), 420, 117, { width: 135, align: 'center' });
 
     // Client / Customer Info Box
-    const clientY = invoice.department ? 205 : 190;
+    const clientY = invoice.department ? 195 : 180;
     doc
-      .rect(40, clientY, 515, 60)
+      .rect(40, clientY, 515, 54)
       .fillColor('#FAF7F5')
       .fill()
       .strokeColor('#E2D7CE')
@@ -173,71 +178,83 @@ export class PdfGenerator {
 
     doc
       .fillColor('#1A120B')
-      .fontSize(10)
+      .fontSize(9.5)
       .font('Helvetica-Bold')
-      .text('Billed To:', 52, clientY + 10);
+      .text('Billed To:', 52, clientY + 8);
 
-    const clientName =
+    const clientName = this.cleanPdfText(
       invoice.corporate_clients?.company_name ||
       invoice.orders?.customers?.name ||
       invoice.orders?.customer_name ||
       invoice.department ||
-      'Valued Customer';
-    const clientGst = invoice.corporate_clients?.gstin ? `GSTIN: ${invoice.corporate_clients.gstin}` : '';
-    const clientAddr =
+      'Counter Walk-in'
+    );
+    const clientGst = invoice.corporate_clients?.gstin ? `GSTIN: ${this.cleanPdfText(invoice.corporate_clients.gstin)}` : '';
+    const clientAddr = this.cleanPdfText(
       invoice.corporate_clients?.billing_address ||
       invoice.orders?.delivery_address ||
       invoice.orders?.customers?.phone ||
-      (invoice.department ? invoice.department : 'Counter Walk-in');
+      'Store Counter'
+    );
 
     doc
       .font('Helvetica')
-      .text(clientName, 52, clientY + 24)
-      .text(clientAddr, 52, clientY + 38)
-      .text(clientGst, 320, clientY + 24);
+      .fontSize(9)
+      .fillColor('#1E293B')
+      .text(clientName, 52, clientY + 22, { width: 280, ellipsis: true })
+      .text(clientAddr, 52, clientY + 36, { width: 280, ellipsis: true });
+
+    if (clientGst) {
+      doc.text(clientGst, 340, clientY + 22, { width: 200 });
+    }
 
     // Items Table Header
-    const tableTop = clientY + 75;
+    const tableTop = clientY + 68;
     doc
-      .rect(40, tableTop, 515, 24)
+      .rect(40, tableTop, 515, 22)
       .fillColor('#6F432A')
       .fill();
 
     doc
       .fillColor('#FFFFFF')
-      .fontSize(10)
+      .fontSize(9)
       .font('Helvetica-Bold')
-      .text('Item Description', 50, tableTop + 7)
-      .text('Rate', 320, tableTop + 7, { width: 60, align: 'right' })
-      .text('Qty', 390, tableTop + 7, { width: 50, align: 'center' })
-      .text('Amount (Rs.)', 450, tableTop + 7, { width: 95, align: 'right' });
+      .text('Item Description', 50, tableTop + 6)
+      .text('Rate', 320, tableTop + 6, { width: 60, align: 'right' })
+      .text('Qty', 390, tableTop + 6, { width: 50, align: 'center' })
+      .text('Amount (Rs.)', 450, tableTop + 6, { width: 95, align: 'right' });
 
     // Line Items
-    let currentY = tableTop + 24;
+    let currentY = tableTop + 22;
     const items = (invoice.orders?.order_items && invoice.orders.order_items.length > 0)
       ? invoice.orders.order_items
       : (invoice.line_items || invoice.items || [
-          { item_name: 'Special Masala Chai & Refreshments', unit_price: invoice.subtotal, quantity: 1, line_total: invoice.subtotal }
+          { item_name: 'Special Masala Chai & Refreshments', unit_price: invoice.subtotal || invoice.grand_total, quantity: 1, line_total: invoice.subtotal || invoice.grand_total }
         ]);
 
-    doc.font('Helvetica').fontSize(9).fillColor('#1A120B');
+    doc.font('Helvetica').fontSize(8.5).fillColor('#1A120B');
 
     items.forEach((it: any, index: number) => {
       const bgColor = index % 2 === 0 ? '#FFFFFF' : '#FDFCFA';
-      doc.rect(40, currentY, 515, 20).fillColor(bgColor).fill();
+      doc.rect(40, currentY, 515, 19).fillColor(bgColor).fill();
+
+      const itemName = this.cleanPdfText(it.item_name || 'Item');
+      const unitPrice = Number(it.unit_price || 0).toFixed(2);
+      const qty = String(it.quantity || 1);
+      const lineTotal = Number(it.line_total || it.unit_price || 0).toFixed(2);
 
       doc
         .fillColor('#1A120B')
-        .text(it.item_name, 50, currentY + 5)
-        .text(Number(it.unit_price).toFixed(2), 320, currentY + 5, { width: 60, align: 'right' })
-        .text(String(it.quantity), 390, currentY + 5, { width: 50, align: 'center' })
-        .text(Number(it.line_total).toFixed(2), 450, currentY + 5, { width: 95, align: 'right' });
+        .text(itemName, 50, currentY + 5, { width: 260, ellipsis: true })
+        .text(unitPrice, 320, currentY + 5, { width: 60, align: 'right' })
+        .text(qty, 390, currentY + 5, { width: 50, align: 'center' })
+        .text(lineTotal, 450, currentY + 5, { width: 95, align: 'right' });
 
-      currentY += 20;
+      currentY += 19;
     });
 
-    // Subtotal & Financial Summary
-    currentY += 10;
+    // Financial Summary
+    currentY += 8;
     doc
       .moveTo(320, currentY)
       .lineTo(555, currentY)
@@ -248,14 +265,14 @@ export class PdfGenerator {
     const renderSummaryLine = (label: string, value: number, isBold = false, color = '#1A120B') => {
       doc
         .font(isBold ? 'Helvetica-Bold' : 'Helvetica')
-        .fontSize(isBold ? 11 : 9)
+        .fontSize(isBold ? 10.5 : 9)
         .fillColor(color)
         .text(label, 320, currentY, { width: 120, align: 'left' })
-        .text(`Rs. ${value.toFixed(2)}`, 450, currentY, { width: 95, align: 'right' });
-      currentY += 16;
+        .text(`Rs. ${Number(value).toFixed(2)}`, 450, currentY, { width: 95, align: 'right' });
+      currentY += 15;
     };
 
-    renderSummaryLine('Subtotal', Number(invoice.subtotal));
+    renderSummaryLine('Subtotal', Number(invoice.subtotal || invoice.grand_total));
     if (Number(invoice.tax_amount) > 0) {
       renderSummaryLine('GST', Number(invoice.tax_amount));
     }
@@ -264,15 +281,41 @@ export class PdfGenerator {
     }
     renderSummaryLine('Grand Total', Number(invoice.grand_total), true, '#6F432A');
     renderSummaryLine('Amount Paid', Number(invoice.paid_amount || 0), false, '#10B981');
-    renderSummaryLine('Balance Outstanding', Number(invoice.outstanding_amount || 0), true, '#EF4444');
+    renderSummaryLine('Balance Due', Number(invoice.outstanding_amount || 0), true, isPaid ? '#10B981' : '#EF4444');
+
+    // Payment Box with Real Chaiwale UPI QR
+    currentY += 14;
+    const upiQrPath = this.getUpiQrPath();
+    const payBoxHeight = upiQrPath ? 68 : 56;
+
+    doc.rect(40, currentY, 515, payBoxHeight).fillColor('#FFFBEB').fill().strokeColor('#FDE68A').stroke();
+    doc.fillColor('#92400E').fontSize(9).font('Helvetica-Bold').text('Payment Instructions & Verification:', 50, currentY + 6);
+
+    const textWidth = upiQrPath ? 415 : 500;
+    doc.fillColor('#78350F').fontSize(8).font('Helvetica')
+      .text('- Settle payment via UPI / QR scan or Cash at the counter.', 50, currentY + 18, { width: textWidth })
+      .text('- Verified Chaiwale UPI: chaiwale@ptyes | Phone: +91 93101 12564', 50, currentY + 29, { width: textWidth })
+      .text('- Customer Portal: Check live statement at https://chaiwale.co.in/check-bill', 50, currentY + 40, { width: textWidth })
+      .text('- For any query or invoice discrepancy, contact store lead: +91 93101 12564', 50, currentY + 51, { width: textWidth });
+
+    if (upiQrPath) {
+      try {
+        doc.image(upiQrPath, 476, currentY + 5, { width: 54, height: 54 });
+        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#92400E').text('SCAN TO PAY', 466, currentY + 60, { width: 74, align: 'center' });
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    currentY += payBoxHeight + 12;
 
     // Footer
     doc
-      .fontSize(9)
+      .fontSize(8)
       .font('Helvetica')
       .fillColor('#8A7366')
-      .text('This is a computer-generated invoice and requires no signature.', 40, 750, { align: 'center', width: 515 })
-      .text('Chaiwale - Delivering Hot Authentic Chai Across Delhi NCR', 40, 765, { align: 'center', width: 515 });
+      .text('This is an official computer-generated tax invoice from Chaiwale. No signature required.', 40, 760, { align: 'center', width: 515 })
+      .text('Chaiwale - Delivering Hot Authentic Kulhad Chai & Meals Across Delhi NCR', 40, 772, { align: 'center', width: 515 });
 
     return this.streamToBuffer(doc);
   }

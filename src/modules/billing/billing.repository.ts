@@ -69,7 +69,21 @@ export class BillingRepository {
     const status = isCredit ? 'UNPAID' : 'PAID';
     const paidAmount = isCredit ? 0 : input.grandTotal;
     const outstandingAmount = isCredit ? input.grandTotal : 0;
-    const issuedAt = input.issueDate ? new Date(input.issueDate).toISOString() : new Date().toISOString();
+    let issuedAt: string;
+    if (input.issueDate) {
+      const trimmed = input.issueDate.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        const now = new Date();
+        const d = new Date(trimmed);
+        d.setUTCHours(now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds());
+        issuedAt = d.toISOString();
+      } else {
+        const parsed = new Date(trimmed);
+        issuedAt = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+      }
+    } else {
+      issuedAt = new Date().toISOString();
+    }
 
     const isValidUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
     const validCorporateClientId = isValidUuid(input.corporateClientId) ? input.corporateClientId : null;
