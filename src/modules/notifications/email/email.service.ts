@@ -15,7 +15,9 @@ import {
   SupportAcknowledgementData,
   generateSupportAcknowledgementEmail,
   SupportInternalData,
-  generateSupportInternalEmail
+  generateSupportInternalEmail,
+  LeadNotificationData,
+  generateLeadNotificationEmail
 } from './templates';
 
 /**
@@ -174,6 +176,26 @@ export class EmailService implements IEmailProvider {
       html,
       text,
       replyTo: data.senderEmail
+    });
+  }
+
+  /**
+   * 8. High-Priority Lead Notification to Operations (chaiwale528@gmail.com)
+   * Dispatches immediate alert for Meal Plan, Catering, Bhandara, or Corporate enquiries.
+   */
+  async sendLeadNotification(
+    data: LeadNotificationData
+  ): Promise<EmailSendResult> {
+    const { subject, html, text } = generateLeadNotificationEmail(data);
+    const targetEmail = config.email.supportNotificationEmail || 'chaiwale528@gmail.com';
+
+    return this.provider.sendEmail({
+      from: config.email.fromSupport,
+      to: targetEmail,
+      subject,
+      html,
+      text,
+      replyTo: data.email || undefined
     });
   }
 }

@@ -66,6 +66,28 @@ export class ResendEmailProvider implements IEmailProvider {
 
       if (!response.ok) {
         console.error(`[RESEND EMAIL] API dispatch error: ${data.message || response.statusText}`);
+        // If domain is unverified on Resend, automatically fallback to onboarding@resend.dev to guarantee delivery
+        if (fromAddress !== 'onboarding@resend.dev' && (response.status === 403 || String(data.message || '').toLowerCase().includes('domain'))) {
+          console.log(`[RESEND EMAIL] Retrying with fallback sender onboarding@resend.dev for recipient: ${recipient}...`);
+          bodyPayload.from = 'Chaiwale Alerts <onboarding@resend.dev>';
+          const retryRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey.trim()}`
+            },
+            body: JSON.stringify(bodyPayload)
+          });
+          const retryData = (await retryRes.json()) as any;
+          if (retryRes.ok) {
+            console.log(`[RESEND EMAIL] Fallback dispatch succeeded (ID: ${retryData.id}) to ${recipient}`);
+            return {
+              success: true,
+              id: retryData.id
+            };
+          }
+          console.error(`[RESEND EMAIL] Fallback dispatch also failed: ${retryData.message || retryRes.statusText}`);
+        }
         return {
           success: false,
           error: data.message || 'Resend dispatch failed'

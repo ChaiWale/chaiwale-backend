@@ -6,3 +6,4 @@ export * from './payment-receipt.template';
 export * from './corporate-reminder.template';
 export * from './support-ack.template';
 export * from './support-internal.template';
+export * from './lead-notification.template';

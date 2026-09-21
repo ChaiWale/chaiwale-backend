@@ -1,5 +1,6 @@
 import { CateringRepository, CateringEnquiryInput, CateringEnquiryRecord } from './catering.repository';
 import { getSupabaseAdminClient } from '../../config/supabase.config';
+import { emailService } from '../notifications/email/email.service';
 
 function normalizeServiceType(type?: string): 'OFFICE_LUNCH' | 'BHANDARA' | 'EVENT_BULK' | 'CUSTOM_EVENT' {
   if (!type) return 'OFFICE_LUNCH';
@@ -24,10 +25,32 @@ export const CATERING_STAGES = [
 
 export class CateringService {
   public static async submitEnquiry(input: CateringEnquiryInput): Promise<{ id: string; leadNumber: string }> {
-    return CateringRepository.createEnquiry({
+    const normalizedType = normalizeServiceType(input.serviceType);
+    const result = await CateringRepository.createEnquiry({
       ...input,
-      serviceType: normalizeServiceType(input.serviceType)
+      serviceType: normalizedType
     });
+
+    // Automatically send lead notification email to operations (chaiwale528@gmail.com) via Resend
+    emailService.sendLeadNotification({
+      leadType: normalizedType === 'BHANDARA' ? 'BHANDARA' : 'CATERING',
+      referenceId: result.leadNumber,
+      customerName: input.customerName,
+      phone: input.phone,
+      email: input.email,
+      companyName: input.companyName,
+      planOrService: input.serviceType || 'Catering / Bulk Order',
+      headcountOrPeriod: input.headcount ? `${input.headcount} Guests / Headcount` : undefined,
+      timingOrDate: input.eventDate,
+      notes: input.requirements,
+      receivedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+    }).then((res) => {
+      console.log(`[CATERING LEAD EMAIL] Dispatched email for lead ${result.leadNumber}:`, res.success ? 'SUCCESS' : res.error);
+    }).catch((err) => {
+      console.error('[CATERING LEAD EMAIL ERROR]', err);
+    });
+
+    return result;
   }
 
   public static async getLeads(limit = 25): Promise<CateringEnquiryRecord[]> {
