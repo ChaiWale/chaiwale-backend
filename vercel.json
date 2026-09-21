@@ -5,7 +5,14 @@
       "src": "api/index.ts",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["src/**", "package.json"]
+        "includeFiles": [
+          "src/**",
+          "package.json",
+          "assets/**",
+          "node_modules/pdfkit/js/standard-fonts/**",
+          "node_modules/pdfkit/js/mixins/**",
+          "node_modules/pdfkit/js/**"
+        ]
       }
     }
   ],
