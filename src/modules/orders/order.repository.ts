@@ -309,4 +309,48 @@ export class OrderRepository {
 
     return true;
   }
+
+  /**
+   * Permanently delete an order and all its items (admin-only hard delete)
+   */
+  public static async deleteOrder(orderId: string): Promise<boolean> {
+    const admin = getSupabaseAdminClient();
+    if (!admin) {
+      throw new Error('Supabase admin client not initialized.');
+    }
+
+    const isUuid = UUID_REGEX.test(orderId.trim());
+
+    // Resolve order ID first if order_number was passed
+    let resolvedId = orderId.trim();
+    if (!isUuid) {
+      const { data } = await admin
+        .from('orders')
+        .select('id')
+        .eq('order_number', orderId.trim())
+        .maybeSingle();
+      if (!data) throw new Error(`Order '${orderId}' not found`);
+      resolvedId = data.id;
+    }
+
+    // 1. Delete order items first (FK constraint)
+    const { error: itemsErr } = await admin
+      .from('order_items')
+      .delete()
+      .eq('order_id', resolvedId);
+    if (itemsErr) {
+      console.warn(`Warning: Could not delete order_items for ${resolvedId}: ${itemsErr.message}`);
+    }
+
+    // 2. Delete the order itself
+    const { error: orderErr } = await admin
+      .from('orders')
+      .delete()
+      .eq('id', resolvedId);
+    if (orderErr) {
+      throw new Error(`Database error deleting order ${orderId}: ${orderErr.message}`);
+    }
+
+    return true;
+  }
 }

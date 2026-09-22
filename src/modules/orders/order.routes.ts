@@ -32,4 +32,12 @@ router.patch(
   OrderController.verifyPayment
 );
 
+// Admin-only: permanently delete an order (test/mistake orders)
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole(['admin']),
+  OrderController.deleteOrder
+);
+
 export const orderRoutes = router;

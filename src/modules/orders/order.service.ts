@@ -175,4 +175,11 @@ export class OrderService {
     }
     return OrderRepository.verifyPayment(orderId);
   }
+
+  /**
+   * Permanently delete an order (admin-only) — bypasses state machine
+   */
+  public static async deleteOrder(orderId: string): Promise<boolean> {
+    return OrderRepository.deleteOrder(orderId);
+  }
 }
