@@ -7,6 +7,9 @@ import {
 } from './billing.repository';
 import { getSupabaseAdminClient } from '../../config/supabase.config';
 import { KhataRepository } from '../khata/khata.repository';
+import { PdfGenerator } from '../documents/pdf.generator';
+import { emailService } from '../notifications/email/email.service';
+
 
 export interface GenerateInvoiceInput {
   orderId?: string;
@@ -224,6 +227,60 @@ export class BillingService {
         console.error('Failed to auto-record credit invoice into Khata ledger:', khataErr);
       }
     }
+
+    // 6. Asynchronously generate PDF and send official email alert to operations (chaiwale528@gmail.com)
+    setImmediate(async () => {
+      try {
+        const fullInvoice = await BillingRepository.getInvoiceById(invoice.id);
+        if (!fullInvoice) return;
+
+        const pdfBuffer = await PdfGenerator.generateInvoicePdf(fullInvoice);
+
+        // Persist document to Supabase storage in background
+        PdfGenerator.persistDocument(
+          pdfBuffer,
+          fullInvoice.invoice_type === 'CORPORATE_CREDIT' ? 'CORPORATE_INVOICE' : 'CUSTOMER_INVOICE',
+          fullInvoice.invoice_number,
+          fullInvoice.id
+        ).catch((err) => console.warn('[BillingService] Doc persistence notice:', err.message));
+
+        const issueFormatted = new Date().toLocaleDateString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        });
+
+        await emailService.sendCustomerInvoice(
+          'chaiwale528@gmail.com',
+          {
+            invoiceNumber: invoice.invoiceNumber,
+            invoiceDate: issueFormatted,
+            orderNumber: fullInvoice.orders?.order_number || invoice.invoiceNumber,
+            customerName: input.customerName || 'Walk-in Guest',
+            customerPhone: input.customerPhone || undefined,
+            paymentMode: input.paymentMode || 'CASH',
+            paymentStatus: input.paymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
+            subtotal: calculation.subtotal,
+            discountTotal: calculation.totalDiscount,
+            taxTotal: calculation.totalTax,
+            grandTotal: calculation.roundedTotal,
+            amountPaid: input.paymentMode === 'CREDIT' ? 0 : calculation.roundedTotal,
+            balanceDue: input.paymentMode === 'CREDIT' ? calculation.roundedTotal : 0,
+            items: input.items.map((it) => ({
+              description: it.name,
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+              amount: it.quantity * it.unitPrice
+            }))
+          },
+          pdfBuffer
+        );
+        console.log(`[BillingService] Dispatched invoice PDF #${invoice.invoiceNumber} to chaiwale528@gmail.com`);
+      } catch (emailErr: any) {
+        console.error(`[BillingService] Failed to dispatch invoice PDF email for #${invoice.invoiceNumber}:`, emailErr.message);
+      }
+    });
 
     return {
       invoice: {
