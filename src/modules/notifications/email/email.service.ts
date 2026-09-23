@@ -81,7 +81,8 @@ export class EmailService implements IEmailProvider {
   async sendCustomerInvoice(
     to: string | string[],
     data: CustomerInvoiceData,
-    pdfBuffer?: Buffer
+    pdfBuffer?: Buffer,
+    options?: { cc?: string | string[]; bcc?: string | string[] }
   ): Promise<EmailSendResult> {
     const { subject, html, text } = generateCustomerInvoiceEmail(data);
     const attachments = pdfBuffer
@@ -97,6 +98,8 @@ export class EmailService implements IEmailProvider {
     return this.provider.sendEmail({
       from: config.email.fromBills,
       to,
+      cc: options?.cc,
+      bcc: options?.bcc,
       subject,
       html,
       text,

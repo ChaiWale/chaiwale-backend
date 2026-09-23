@@ -1,5 +1,7 @@
 export interface EmailPayload {
   to: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
   from?: string;
   subject: string;
   html: string;

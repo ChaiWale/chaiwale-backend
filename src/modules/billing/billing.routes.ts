@@ -66,5 +66,15 @@ router.get(
   BillingController.getCustomerBills
 );
 
+// Public customer invoice portal route (Phone / PIN verified)
+router.get(
+  '/public/invoice/:id',
+  BillingController.getPublicInvoice
+);
+router.post(
+  '/public/invoice/:id',
+  BillingController.getPublicInvoice
+);
+
 export const billingRoutes = router;
 

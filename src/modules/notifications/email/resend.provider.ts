@@ -41,6 +41,14 @@ export class ResendEmailProvider implements IEmailProvider {
         text: payload.text
       };
 
+      if (payload.cc) {
+        bodyPayload.cc = Array.isArray(payload.cc) ? payload.cc : [payload.cc];
+      }
+
+      if (payload.bcc) {
+        bodyPayload.bcc = Array.isArray(payload.bcc) ? payload.bcc : [payload.bcc];
+      }
+
       if (payload.replyTo) {
         bodyPayload.reply_to = payload.replyTo;
       }

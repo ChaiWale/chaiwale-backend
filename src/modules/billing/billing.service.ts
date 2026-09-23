@@ -19,6 +19,7 @@ export interface GenerateInvoiceInput {
   department?: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
   issueDate?: string;
   items: Array<{
     productId: string;
@@ -179,52 +180,65 @@ export class BillingService {
       grandTotal: calculation.roundedTotal
     });
 
-    // 4. If customerPhone provided, ensure permanent customer account with 4-digit PIN exists
+    // 4. Resolve customer account / PIN if phone or corporateClientId provided
     let customerPin: string | undefined = undefined;
-    if (input.customerPhone && input.customerPhone.trim().replace(/\D/g, '').length >= 7) {
+    let targetOffice: any = null;
+
+    if (
+      input.corporateClientId ||
+      (input.customerPhone && input.customerPhone.trim().replace(/\D/g, '').length >= 7)
+    ) {
       try {
-        const office = await KhataRepository.findOrCreateOffice({
+        targetOffice = await KhataRepository.findOrCreateOffice({
+          id: input.corporateClientId,
           phone: input.customerPhone,
           name: input.customerName || 'Customer',
-          company_name: input.department || 'Retail Customer'
+          company_name: input.department || 'Retail Customer',
+          floor_unit: input.department
         });
-        if (office?.client_pin) {
-          customerPin = office.client_pin;
+        if (targetOffice?.client_pin) {
+          customerPin = targetOffice.client_pin;
         }
       } catch (pinErr) {
-        console.warn('[BillingService] Could not auto-resolve customer PIN:', pinErr);
+        console.warn('[BillingService] Could not auto-resolve customer account:', pinErr);
       }
     }
 
-    // 5. If paymentMode is CREDIT, auto-log items directly to the customer's Khata ledger
-    if (input.paymentMode === 'CREDIT') {
-      try {
-        const targetOffice = await KhataRepository.findOrCreateOffice({
-          id: input.corporateClientId,
-          phone: input.customerPhone,
-          name: input.customerName,
-          company_name: input.department,
-          floor_unit: input.department
-        });
+    // Link invoice to resolved office if not already linked
+    if (targetOffice && !input.corporateClientId) {
+      const admin = getSupabaseAdminClient();
+      if (admin) {
+        await admin.from('invoices').update({ corporate_client_id: targetOffice.id }).eq('id', invoice.id);
+      }
+    }
 
-        if (targetOffice) {
-          if (targetOffice.client_pin) {
-            customerPin = targetOffice.client_pin;
-          }
-          const entryDate = input.issueDate || new Date().toISOString().split('T')[0];
-          for (const it of input.items) {
-            await KhataRepository.addEntry({
-              office_id: targetOffice.id,
-              date: entryDate,
-              item_name: it.name,
-              quantity: it.quantity,
-              unit_price: it.unitPrice,
-              notes: `POS Bill #${invoice.invoiceNumber}`
-            });
-          }
+    // 5. Auto-log items to customer ledger so customer statement, Khata overview & /check-bill reflect full history
+    if (targetOffice) {
+      try {
+        const entryDate = input.issueDate || new Date().toISOString().split('T')[0];
+        for (const it of input.items) {
+          await KhataRepository.addEntry({
+            office_id: targetOffice.id,
+            date: entryDate,
+            item_name: it.name,
+            quantity: it.quantity,
+            unit_price: it.unitPrice,
+            notes: `POS Bill #${invoice.invoiceNumber}`
+          });
+        }
+
+        // If paid right away at POS (e.g. UPI, CASH), also record corresponding payment so Due = 0 and Paid = Billed
+        if (input.paymentMode !== 'CREDIT') {
+          await KhataRepository.addPayment({
+            office_id: targetOffice.id,
+            date: entryDate,
+            amount: calculation.roundedTotal,
+            payment_mode: input.paymentMode || 'CASH',
+            notes: `POS Counter Payment (${input.paymentMode || 'PAID'}) - #${invoice.invoiceNumber}`
+          });
         }
       } catch (khataErr) {
-        console.error('Failed to auto-record credit invoice into Khata ledger:', khataErr);
+        console.error('Failed to auto-record invoice into Khata ledger:', khataErr);
       }
     }
 
@@ -251,14 +265,20 @@ export class BillingService {
           year: 'numeric'
         });
 
+        const targetEmail = input.customerEmail && input.customerEmail.trim().includes('@')
+          ? input.customerEmail.trim()
+          : 'chaiwale528@gmail.com';
+        const ccRecipient = targetEmail.toLowerCase() !== 'chaiwale528@gmail.com' ? 'chaiwale528@gmail.com' : undefined;
+
         await emailService.sendCustomerInvoice(
-          'chaiwale528@gmail.com',
+          targetEmail,
           {
             invoiceNumber: invoice.invoiceNumber,
             invoiceDate: issueFormatted,
             orderNumber: fullInvoice.orders?.order_number || invoice.invoiceNumber,
             customerName: input.customerName || 'Walk-in Guest',
             customerPhone: input.customerPhone || undefined,
+            customerEmail: input.customerEmail || undefined,
             paymentMode: input.paymentMode || 'CASH',
             paymentStatus: input.paymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
             subtotal: calculation.subtotal,
@@ -274,9 +294,10 @@ export class BillingService {
               amount: it.quantity * it.unitPrice
             }))
           },
-          pdfBuffer
+          pdfBuffer,
+          ccRecipient ? { cc: ccRecipient } : undefined
         );
-        console.log(`[BillingService] Dispatched invoice PDF #${invoice.invoiceNumber} to chaiwale528@gmail.com`);
+        console.log(`[BillingService] Dispatched invoice PDF #${invoice.invoiceNumber} to ${targetEmail}${ccRecipient ? ` (CC: ${ccRecipient})` : ''}`);
       } catch (emailErr: any) {
         console.error(`[BillingService] Failed to dispatch invoice PDF email for #${invoice.invoiceNumber}:`, emailErr.message);
       }
