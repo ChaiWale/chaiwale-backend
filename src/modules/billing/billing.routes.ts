@@ -53,11 +53,18 @@ router.get(
   BillingController.getLedger
 );
 
-router.get(
-  '/statement/:clientId',
+router.delete(
+  '/invoices/:id',
   requireAuth,
-  requireRole(['admin', 'manager']),
-  BillingController.getCorporateStatement
+  requireRole(['admin', 'manager', 'staff']),
+  BillingController.deleteInvoice
+);
+
+// Public customer bill portal route (Phone + PIN verified)
+router.get(
+  '/customer-bills',
+  BillingController.getCustomerBills
 );
 
 export const billingRoutes = router;
+

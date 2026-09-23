@@ -85,6 +85,7 @@ export class BillingService {
       status: string;
       paidAmount: number;
       outstandingAmount: number;
+      customerPin?: string;
     };
     calculation: BillingCalculationResult;
   }> {
@@ -175,7 +176,24 @@ export class BillingService {
       grandTotal: calculation.roundedTotal
     });
 
-    // 4. If paymentMode is CREDIT, auto-log items directly to the customer's Khata ledger
+    // 4. If customerPhone provided, ensure permanent customer account with 4-digit PIN exists
+    let customerPin: string | undefined = undefined;
+    if (input.customerPhone && input.customerPhone.trim().replace(/\D/g, '').length >= 7) {
+      try {
+        const office = await KhataRepository.findOrCreateOffice({
+          phone: input.customerPhone,
+          name: input.customerName || 'Customer',
+          company_name: input.department || 'Retail Customer'
+        });
+        if (office?.client_pin) {
+          customerPin = office.client_pin;
+        }
+      } catch (pinErr) {
+        console.warn('[BillingService] Could not auto-resolve customer PIN:', pinErr);
+      }
+    }
+
+    // 5. If paymentMode is CREDIT, auto-log items directly to the customer's Khata ledger
     if (input.paymentMode === 'CREDIT') {
       try {
         const targetOffice = await KhataRepository.findOrCreateOffice({
@@ -187,6 +205,9 @@ export class BillingService {
         });
 
         if (targetOffice) {
+          if (targetOffice.client_pin) {
+            customerPin = targetOffice.client_pin;
+          }
           const entryDate = input.issueDate || new Date().toISOString().split('T')[0];
           for (const it of input.items) {
             await KhataRepository.addEntry({
@@ -205,8 +226,94 @@ export class BillingService {
     }
 
     return {
-      invoice,
+      invoice: {
+        ...invoice,
+        customerPin
+      },
       calculation
+    };
+  }
+
+  /**
+   * Delete an invoice and cascade delete its linked order (two-way sync)
+   */
+  public static async deleteInvoice(invoiceId: string) {
+    return BillingRepository.deleteInvoice(invoiceId);
+  }
+
+  /**
+   * Fetch customer's full invoices history with order items for /check-bill
+   */
+  public static async getCustomerInvoices(phone: string, pin?: string) {
+    const cleanPhone = phone.replace(/[\s\-]/g, '').replace(/^\+91/, '').replace(/^91/, '').slice(-10);
+    const admin = getSupabaseAdminClient();
+    if (!admin) throw new Error('Database client not initialized');
+
+    // 1. Verify PIN against khata_offices if provided
+    let accountName = 'Customer';
+    if (pin && cleanPhone) {
+      const { data: offices } = await admin
+        .from('khata_offices')
+        .select('*')
+        .eq('client_pin', pin.trim().toUpperCase());
+      const office = (offices || []).find((o: any) => o.phone.replace(/\D/g, '').endsWith(cleanPhone));
+      if (office) {
+        accountName = office.name;
+      }
+    }
+
+    // 2. Fetch all invoices matching the customer phone
+    const { data: invoices, error } = await admin
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        order_id,
+        invoice_type,
+        subtotal,
+        tax_amount,
+        discount_amount,
+        grand_total,
+        status,
+        issued_at,
+        created_at,
+        paid_amount,
+        outstanding_amount,
+        department,
+        orders (
+          id,
+          order_number,
+          order_type,
+          delivery_address,
+          status,
+          payment_mode,
+          payment_status,
+          order_items (
+            id,
+            item_name,
+            quantity,
+            unit_price,
+            line_total
+          )
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      throw new Error(`Failed to query customer invoices: ${error.message}`);
+    }
+
+    const matched = (invoices || []).filter((inv: any) => {
+      const dept = (inv.department || '').toLowerCase();
+      const addr = (inv.orders?.delivery_address || '').toLowerCase();
+      return dept.includes(cleanPhone) || addr.includes(cleanPhone);
+    });
+
+    return {
+      accountName,
+      phone: cleanPhone,
+      invoices: matched
     };
   }
 
@@ -233,3 +340,4 @@ export class BillingService {
     return BillingRepository.getCorporateStatement(clientId);
   }
 }
+

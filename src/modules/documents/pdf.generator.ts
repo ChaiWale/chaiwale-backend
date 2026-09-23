@@ -109,18 +109,21 @@ export class PdfGenerator {
       }
     }
 
+    const { StoreProfileService } = await import('../../services/store-profile.service');
+    const storeProfile = await StoreProfileService.getProfile();
+
     doc
       .fillColor(BUSINESS_CONFIG.colors.primary)
       .fontSize(22)
       .font('Helvetica-Bold')
-      .text(BUSINESS_CONFIG.brandName.toUpperCase(), textX, 34);
+      .text(storeProfile.store_name.toUpperCase(), textX, 34);
 
     doc
       .fillColor(BUSINESS_CONFIG.colors.secondary)
       .fontSize(8.5)
       .font('Helvetica')
-      .text(BUSINESS_CONFIG.address.full, textX, 60, { width: 440 })
-      .text(`Phone: ${BUSINESS_CONFIG.contact.phone} | Email: ${BUSINESS_CONFIG.contact.supportEmail} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 74);
+      .text(storeProfile.address, textX, 60, { width: 440 })
+      .text(`Phone: ${storeProfile.phone} | Email: ${storeProfile.email} | Web: ${BUSINESS_CONFIG.urls.website}`, textX, 74);
 
     doc
       .moveTo(40, 92)
@@ -128,6 +131,7 @@ export class PdfGenerator {
       .strokeColor('#E2D7CE')
       .lineWidth(1)
       .stroke();
+
 
     // Document Title & Metadata
     doc

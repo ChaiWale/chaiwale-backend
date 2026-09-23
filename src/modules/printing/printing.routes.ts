@@ -148,9 +148,12 @@ router.post(
         return;
       }
 
+      const { StoreProfileService } = await import('../../services/store-profile.service');
+      const storeProfile = await StoreProfileService.getProfile();
+
       const payload = ReceiptBuilder.buildCustomerBill({
-        storeName: 'CHAIWALE',
-        storeAddress: 'Rohini Sector-7, New Delhi',
+        storeName: storeProfile.store_name,
+        storeAddress: storeProfile.address,
         invoiceNumber: invoiceData?.invoice_number || `REC-${orderData?.order_number}`,
         orderNumber: orderData?.order_number,
         date: new Date(invoiceData?.issued_at || orderData?.created_at || Date.now()).toLocaleString('en-IN'),
@@ -167,6 +170,7 @@ router.post(
           total: Number(it.line_total || it.unit_price * it.quantity)
         }))
       });
+
 
       res.json({
         success: true,

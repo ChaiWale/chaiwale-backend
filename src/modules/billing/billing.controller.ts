@@ -228,4 +228,52 @@ export class BillingController {
       next(err);
     }
   }
+
+  public static async deleteInvoice(req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({
+          success: false,
+          message: 'Invoice ID is required',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      await BillingService.deleteInvoice(id);
+      res.json({
+        success: true,
+        message: `Invoice '${id}' and linked order deleted successfully`,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async getCustomerBills(req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+    try {
+      const phone = (req.query.phone as string) || '';
+      const pin = (req.query.pin as string) || undefined;
+
+      if (!phone || phone.trim().replace(/\D/g, '').length < 7) {
+        res.status(400).json({
+          success: false,
+          message: 'Valid phone number is required',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      const result = await BillingService.getCustomerInvoices(phone, pin);
+      res.json({
+        success: true,
+        data: result,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
+

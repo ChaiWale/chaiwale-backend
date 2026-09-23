@@ -438,19 +438,76 @@ export class BillingRepository {
       `);
 
     if (isUuid) {
-      query = query.eq('id', invoiceId.trim());
-    } else {
-      query = query.eq('invoice_number', invoiceId.trim().toUpperCase());
+      const { data, error } = await query.eq('id', invoiceId.trim()).maybeSingle();
+      if (error) throw new Error(`Database error fetching invoice details: ${error.message}`);
+      return data;
     }
 
-    const { data, error } = await query.maybeSingle();
+    const trimmed = invoiceId.trim().toUpperCase();
+    const { data: invData, error: invErr } = await query.eq('invoice_number', trimmed).maybeSingle();
+    if (invErr) throw new Error(`Database error fetching invoice: ${invErr.message}`);
+    if (invData) return invData;
 
-    if (error) {
-      throw new Error(`Database error fetching invoice details: ${error.message}`);
+    // Fallback: If passed an order number (e.g. CW-POS-...), resolve linked invoice
+    const { data: orderRec } = await admin.from('orders').select('id').eq('order_number', trimmed).maybeSingle();
+    if (orderRec?.id) {
+      const { data: invByOrder } = await admin
+        .from('invoices')
+        .select(`
+          id,
+          invoice_number,
+          invoice_type,
+          department,
+          subtotal,
+          tax_amount,
+          discount_amount,
+          grand_total,
+          paid_amount,
+          outstanding_amount,
+          status,
+          issued_at,
+          pdf_storage_path,
+          corporate_clients (
+            id,
+            company_name,
+            gstin,
+            billing_address
+          ),
+          orders (
+            id,
+            order_number,
+            customer_id,
+            delivery_address,
+            payment_mode,
+            customers (
+              name,
+              phone
+            ),
+            order_items (
+              item_name,
+              unit_price,
+              quantity,
+              line_total
+            )
+          ),
+          payments (
+            id,
+            amount,
+            payment_mode,
+            payment_status,
+            transaction_ref,
+            paid_at
+          )
+        `)
+        .eq('order_id', orderRec.id)
+        .maybeSingle();
+
+      if (invByOrder) return invByOrder;
     }
 
-    return data;
+    return null;
   }
+
 
   /**
    * Fetch Ledger Entries
@@ -543,4 +600,44 @@ export class BillingRepository {
       totalOutstanding: Number(totalOutstanding.toFixed(2))
     };
   }
+
+  /**
+   * Delete an invoice and cascade delete its linked order (two-way sync)
+   */
+  public static async deleteInvoice(invoiceId: string): Promise<boolean> {
+    const admin = getSupabaseAdminClient();
+    if (!admin) throw new Error('Database client not initialized');
+
+    // 1. Fetch invoice to find linked order_id
+    const { data: invoice } = await admin
+      .from('invoices')
+      .select('id, order_id')
+      .eq('id', invoiceId)
+      .maybeSingle();
+
+    if (!invoice) {
+      throw new Error(`Invoice '${invoiceId}' not found`);
+    }
+
+    const orderId = invoice.order_id;
+
+    // 2. Delete invoice payments & ledger
+    await admin.from('invoice_payments').delete().eq('invoice_id', invoiceId);
+    await admin.from('general_ledger').delete().eq('invoice_id', invoiceId);
+
+    // 3. Delete the invoice itself
+    const { error: invErr } = await admin.from('invoices').delete().eq('id', invoiceId);
+    if (invErr) {
+      throw new Error(`Failed to delete invoice: ${invErr.message}`);
+    }
+
+    // 4. If linked to an order, cascade delete the order & order items
+    if (orderId) {
+      await admin.from('order_items').delete().eq('order_id', orderId);
+      await admin.from('orders').delete().eq('id', orderId);
+    }
+
+    return true;
+  }
 }
+

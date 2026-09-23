@@ -333,7 +333,27 @@ export class OrderRepository {
       resolvedId = data.id;
     }
 
-    // 1. Delete order items first (FK constraint)
+    // 1. Find and cascade delete any linked invoices + invoice payments
+    const { data: linkedInvoices } = await admin
+      .from('invoices')
+      .select('id')
+      .eq('order_id', resolvedId);
+
+    if (linkedInvoices && linkedInvoices.length > 0) {
+      const invIds = linkedInvoices.map((inv: any) => inv.id);
+      
+      // Delete invoice payments
+      await admin.from('invoice_payments').delete().in('invoice_id', invIds);
+      // Delete general ledger entries
+      await admin.from('general_ledger').delete().in('invoice_id', invIds);
+      // Delete invoices
+      const { error: invErr } = await admin.from('invoices').delete().in('id', invIds);
+      if (invErr) {
+        console.warn(`Warning: Could not delete linked invoices for order ${resolvedId}: ${invErr.message}`);
+      }
+    }
+
+    // 2. Delete order items (FK constraint)
     const { error: itemsErr } = await admin
       .from('order_items')
       .delete()
@@ -342,7 +362,7 @@ export class OrderRepository {
       console.warn(`Warning: Could not delete order_items for ${resolvedId}: ${itemsErr.message}`);
     }
 
-    // 2. Delete the order itself
+    // 3. Delete the order itself
     const { error: orderErr } = await admin
       .from('orders')
       .delete()
@@ -354,3 +374,4 @@ export class OrderRepository {
     return true;
   }
 }
+

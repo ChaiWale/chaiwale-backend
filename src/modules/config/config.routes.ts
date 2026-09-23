@@ -668,6 +668,44 @@ router.post('/meal-plans/enquire', async (req: Request, res: Response, next: Nex
   }
 });
 
+/**
+ * GET /api/v1/config/store-profile
+ * Public endpoint delivering live store details from database app_settings
+ */
+router.get('/store-profile', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { StoreProfileService } = await import('../../services/store-profile.service');
+    const profile = await StoreProfileService.getProfile();
+    res.json({
+      success: true,
+      data: profile,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/v1/config/store-profile
+ * Admin endpoint updating store details in central app_settings table
+ */
+router.put('/store-profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { StoreProfileService } = await import('../../services/store-profile.service');
+    const updated = await StoreProfileService.updateProfile(req.body);
+    res.json({
+      success: true,
+      message: 'Store profile updated successfully in central database',
+      data: updated,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export const configRoutes = router;
+
 
 
