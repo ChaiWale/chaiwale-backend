@@ -20,6 +20,8 @@ export const BUSINESS_CONFIG = {
 
   contact: {
     phone: '+91 93101 12564',
+    secondaryPhone: '+91 93101 10414',
+    helpline: '+91 93101 12564 / +91 93101 10414',
     phoneClean: '919310112564',
     whatsapp: '919310112564',
     supportEmail: 'support@chaiwale.co.in',
