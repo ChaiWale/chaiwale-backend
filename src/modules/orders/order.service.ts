@@ -56,7 +56,11 @@ export class OrderService {
       .map((it) => it.productId || it.menuItemId)
       .filter((id): id is string => Boolean(id));
 
-    // Fetch authoritative menu items from Supabase if needed
+    const variantIds = input.items
+      .map((it) => it.variantId)
+      .filter((id): id is string => Boolean(id));
+
+    // Fetch authoritative menu items and variants from Supabase if needed
     const menuItemsMap: Record<string, { name: string; base_price: number }> = {};
     if (admin && itemIds.length > 0) {
       const { data } = await admin
@@ -70,16 +74,43 @@ export class OrderService {
       }
     }
 
-    // Resolve items with authoritative pricing
+    const variantsMap: Record<string, { name: string; price: number; menu_item_id: string }> = {};
+    if (admin && variantIds.length > 0) {
+      const { data: varData } = await admin
+        .from('menu_item_variants')
+        .select('id, name, price, menu_item_id')
+        .in('id', variantIds);
+      if (varData) {
+        varData.forEach((v) => {
+          variantsMap[v.id] = { name: v.name, price: Number(v.price), menu_item_id: v.menu_item_id };
+        });
+      }
+    }
+
+    // Resolve items with authoritative pricing (supporting variants like Half / Full)
     const resolvedItems = input.items.map((it) => {
       const id = it.productId || it.menuItemId || 'custom';
       const dbItem = menuItemsMap[id];
-      const name = it.name || dbItem?.name || 'Menu Item';
-      const unitPrice = dbItem ? dbItem.base_price : (it.unitPrice !== undefined ? Number(it.unitPrice) : 0);
+      const dbVariant = it.variantId ? variantsMap[it.variantId] : undefined;
+
+      let name = it.name || dbItem?.name || 'Menu Item';
+      let unitPrice = it.unitPrice !== undefined ? Number(it.unitPrice) : 0;
+
+      if (dbVariant) {
+        unitPrice = dbVariant.price;
+        if (dbItem) {
+          name = `${dbItem.name} (${dbVariant.name})`;
+        }
+      } else if (dbItem) {
+        unitPrice = dbItem.base_price;
+        name = dbItem.name;
+      }
+
       const quantity = Math.max(1, Number(it.quantity || 1));
 
       return {
         productId: id,
+        variantId: it.variantId,
         name,
         unitPrice,
         quantity
@@ -94,9 +125,10 @@ export class OrderService {
       billType: 'DIRECT'
     });
 
-    // 2. Prepare immutable snapshot line items
-    const orderItemsSnapshot: CreateOrderItemInput[] = billingResult.items.map((it) => ({
+    // 2. Prepare immutable snapshot line items (with variantId)
+    const orderItemsSnapshot: CreateOrderItemInput[] = billingResult.items.map((it: any) => ({
       menuItemId: it.productId !== 'custom' ? it.productId : undefined,
+      variantId: it.variantId || undefined,
       itemName: it.name,
       unitPrice: it.unitPrice,
       quantity: it.quantity,

@@ -52,7 +52,7 @@ export const config = {
   },
   email: {
     apiKey: process.env.RESEND_API_KEY || '',
-    fromBills: process.env.EMAIL_FROM_BILLS || 'Chaiwale Invoice <bills@chaiwale.co.in>',
+    fromBills: process.env.EMAIL_FROM_BILLS || 'Chaiwale Bills <bills@chaiwale.co.in>',
     fromOrders: process.env.EMAIL_FROM_ORDERS || 'Chaiwale Orders <orders@chaiwale.co.in>',
     fromSupport: process.env.EMAIL_FROM_SUPPORT || 'Chaiwale Support <support@chaiwale.co.in>',
     supportNotificationEmail: process.env.SUPPORT_NOTIFICATION_EMAIL || 'chaiwale528@gmail.com'

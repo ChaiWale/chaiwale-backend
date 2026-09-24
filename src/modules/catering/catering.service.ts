@@ -32,23 +32,24 @@ export class CateringService {
     });
 
     // Automatically send lead notification email to operations (chaiwale528@gmail.com) via Resend
-    emailService.sendLeadNotification({
-      leadType: normalizedType === 'BHANDARA' ? 'BHANDARA' : 'CATERING',
-      referenceId: result.leadNumber,
-      customerName: input.customerName,
-      phone: input.phone,
-      email: input.email,
-      companyName: input.companyName,
-      planOrService: input.serviceType || 'Catering / Bulk Order',
-      headcountOrPeriod: input.headcount ? `${input.headcount} Guests / Headcount` : undefined,
-      timingOrDate: input.eventDate,
-      notes: input.requirements,
-      receivedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
-    }).then((res) => {
-      console.log(`[CATERING LEAD EMAIL] Dispatched email for lead ${result.leadNumber}:`, res.success ? 'SUCCESS' : res.error);
-    }).catch((err) => {
-      console.error('[CATERING LEAD EMAIL ERROR]', err);
-    });
+    try {
+      const mailRes = await emailService.sendLeadNotification({
+        leadType: normalizedType === 'BHANDARA' ? 'BHANDARA' : 'CATERING',
+        referenceId: result.leadNumber,
+        customerName: input.customerName,
+        phone: input.phone,
+        email: input.email,
+        companyName: input.companyName,
+        planOrService: input.serviceType || 'Catering / Bulk Order',
+        headcountOrPeriod: input.headcount ? `${input.headcount} Guests / Headcount` : undefined,
+        timingOrDate: input.eventDate,
+        notes: input.requirements,
+        receivedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+      });
+      console.log(`[CATERING LEAD EMAIL] Dispatched email for lead ${result.leadNumber}:`, mailRes.success ? 'SUCCESS' : mailRes.error);
+    } catch (err: any) {
+      console.error('[CATERING LEAD EMAIL ERROR]', err?.message || err);
+    }
 
     return result;
   }

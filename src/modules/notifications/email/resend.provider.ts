@@ -31,7 +31,14 @@ export class ResendEmailProvider implements IEmailProvider {
     }
 
     try {
-      const fromAddress = payload.from || config.email.fromOrders;
+      let fromAddress = (payload.from || config.email.fromOrders).trim();
+      // Ensure friendly display name if only email was passed
+      if (!fromAddress.includes('<')) {
+        const lower = fromAddress.toLowerCase();
+        if (lower.includes('bill') || lower.includes('invoice')) fromAddress = 'Chaiwale Bills <bills@chaiwale.co.in>';
+        else if (lower.includes('order')) fromAddress = 'Chaiwale Orders <orders@chaiwale.co.in>';
+        else fromAddress = 'Chaiwale Support <support@chaiwale.co.in>';
+      }
 
       const bodyPayload: Record<string, any> = {
         from: fromAddress,
