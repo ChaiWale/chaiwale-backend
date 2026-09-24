@@ -61,7 +61,9 @@ export const BUSINESS_CONFIG = {
   },
 
   payment: {
-    defaultUpiId: 'paytmqr28100505010115gsv3315o55@paytm'
+    defaultUpiId: 'chaiwale@ptyes',
+    accountHolder: 'Shubham Sharma',
+    merchantName: 'Chaiwale'
   },
 
   colors: {
