@@ -81,7 +81,7 @@ export class MenuRepository {
       query = query.ilike('name', `%${search.trim()}%`);
     }
 
-    query = query.order('name', { ascending: true }).limit(100);
+    query = query.order('base_price', { ascending: true }).limit(1000);
 
     const { data, error } = await query;
     if (error) {
