@@ -3,6 +3,7 @@ import { OrderService } from './order.service';
 import { ApiResponse } from '../../types/common.types';
 import { emailService } from '../notifications/email/email.service';
 import { buildWhatsAppUrl, DEFAULT_STORE_WHATSAPP } from '../notifications/whatsapp/whatsapp-builder';
+import { getSupabaseAdminClient } from '../../config/supabase.config';
 
 export class OrderController {
   public static async healthCheck(_req: Request, res: Response<ApiResponse>): Promise<void> {
@@ -35,8 +36,63 @@ export class OrderController {
         return;
       }
 
+      // Parse customer name & phone from body or specialInstructions
+      let customerName = (req.body.customerName || '').trim();
+      let customerPhone = (req.body.customerPhone || '').trim();
+      if (!customerName || !customerPhone) {
+        if (specialInstructions) {
+          const nameMatch = specialInstructions.match(/Customer:\s*([^,(]+)/i);
+          const phoneMatch = specialInstructions.match(/Phone:\s*([\d\s+\-()]+)/i);
+          if (nameMatch && !customerName) customerName = nameMatch[1].trim();
+          if (phoneMatch && !customerPhone) customerPhone = phoneMatch[1].trim();
+        }
+      }
+      if (!customerName) customerName = 'Customer';
+
+      // Auto-link or create Customer in Supabase directory
+      let resolvedCustomerId = customerId;
+      const admin = getSupabaseAdminClient();
+      if (!resolvedCustomerId && customerPhone && admin) {
+        try {
+          const cleanPhone = customerPhone.replace(/\D/g, '');
+          if (cleanPhone.length >= 10) {
+            const { data: existingCust } = await admin
+              .from('customers')
+              .select('id')
+              .eq('phone', cleanPhone)
+              .maybeSingle();
+
+            if (existingCust) {
+              resolvedCustomerId = existingCust.id;
+              if (deliveryAddress || customerName) {
+                await admin
+                  .from('customers')
+                  .update({
+                    name: customerName,
+                    delivery_address: deliveryAddress || undefined
+                  })
+                  .eq('id', resolvedCustomerId);
+              }
+            } else {
+              const { data: newCust } = await admin
+                .from('customers')
+                .insert({
+                  name: customerName,
+                  phone: cleanPhone,
+                  delivery_address: deliveryAddress || null
+                })
+                .select('id')
+                .single();
+              if (newCust) resolvedCustomerId = newCust.id;
+            }
+          }
+        } catch (custErr) {
+          console.error('[ORDER CUSTOMER SYNC] Warning: Could not sync customer profile:', custErr);
+        }
+      }
+
       const result = await OrderService.placeOrder({
-        customerId,
+        customerId: resolvedCustomerId,
         orderType: orderType || 'DIRECT_DELIVERY',
         deliveryAddress,
         deliveryDistanceKm: deliveryDistanceKm ? Number(deliveryDistanceKm) : undefined,
@@ -45,16 +101,6 @@ export class OrderController {
         overallDiscountPercent: overallDiscountPercent ? Number(overallDiscountPercent) : undefined,
         additionalCharges: additionalCharges ? Number(additionalCharges) : undefined
       });
-
-      // Parse customer name & phone from specialInstructions (set by frontend checkout form)
-      let customerName = 'Customer';
-      let customerPhone = '';
-      if (specialInstructions) {
-        const nameMatch = specialInstructions.match(/Customer:\s*([^,(]+)/i);
-        const phoneMatch = specialInstructions.match(/Phone:\s*([\d\s+\-()]+)/i);
-        if (nameMatch) customerName = nameMatch[1].trim();
-        if (phoneMatch) customerPhone = phoneMatch[1].trim();
-      }
 
       // Build WhatsApp pre-filled message for customer to send to store
       const itemLines = items.map((it: any) => `• ${it.name || 'Item'} x${it.quantity}`).join('\n');

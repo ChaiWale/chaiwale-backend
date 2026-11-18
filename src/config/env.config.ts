@@ -7,7 +7,7 @@ const parseCorsOrigins = (): string[] => {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
-  
+
   // Official Approved Chaiwale Production Origins
   const productionOrigins = [
     'https://chaiwale.co.in',
@@ -51,7 +51,7 @@ export const config = {
     businessNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '919310112564'
   },
   email: {
-    apiKey: process.env.RESEND_API_KEY || '',
+    apiKey: (process.env.RESEND_API_KEY || '').trim(),
     fromBills: process.env.EMAIL_FROM_BILLS || 'Chaiwale Bills <bills@chaiwale.co.in>',
     fromOrders: process.env.EMAIL_FROM_ORDERS || 'Chaiwale Orders <orders@chaiwale.co.in>',
     fromSupport: process.env.EMAIL_FROM_SUPPORT || 'Chaiwale Support <support@chaiwale.co.in>',

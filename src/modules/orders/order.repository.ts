@@ -30,7 +30,9 @@ export interface OrderRecord {
   order_number: string;
   order_type: string;
   customer_name?: string;
+  customer_phone?: string;
   delivery_address?: string;
+  special_instructions?: string;
   payment_mode?: string;
   transaction_ref?: string;
   subtotal: number;
@@ -199,6 +201,7 @@ export class OrderRepository {
         order_number,
         order_type,
         delivery_address,
+        special_instructions,
         payment_mode,
         transaction_ref,
         subtotal,
@@ -227,24 +230,45 @@ export class OrderRepository {
       throw new Error(`Database error fetching recent orders: ${error.message}`);
     }
 
-    return (data || []).map((o: any) => ({
-      id: o.id,
-      order_number: o.order_number,
-      order_type: o.order_type,
-      customer_name: o.customers?.name || (o.order_type === 'DINE_IN' ? 'Walk-in Table' : 'Direct Customer'),
-      delivery_address: o.delivery_address,
-      payment_mode: o.payment_mode,
-      transaction_ref: o.transaction_ref,
-      subtotal: Number(o.subtotal),
-      tax_amount: Number(o.tax_amount),
-      discount_amount: Number(o.discount_amount),
-      additional_charges: Number(o.additional_charges || 0),
-      grand_total: Number(o.grand_total),
-      status: o.status,
-      payment_status: o.payment_status,
-      created_at: o.created_at,
-      items: o.order_items || []
-    }));
+    return (data || []).map((o: any) => {
+      let custName = o.customers?.name;
+      let custPhone = o.customers?.phone;
+
+      if (!custName && o.special_instructions) {
+        const nameMatch = o.special_instructions.match(/Customer:\s*([^,(]+)/i);
+        if (nameMatch) custName = nameMatch[1].trim();
+      }
+
+      if (!custPhone && o.special_instructions) {
+        const phoneMatch = o.special_instructions.match(/Phone:\s*([\d\s+\-()]+)/i);
+        if (phoneMatch) custPhone = phoneMatch[1].trim();
+      }
+
+      // Clean special instructions if it only had Customer/Phone metadata
+      let cleanInstructions = o.special_instructions || '';
+      const stripped = cleanInstructions.replace(/\(?Customer:[^)]+\)?/gi, '').trim();
+
+      return {
+        id: o.id,
+        order_number: o.order_number,
+        order_type: o.order_type,
+        customer_name: custName || (o.order_type === 'DINE_IN' ? 'Walk-in Table' : 'Direct Customer'),
+        customer_phone: custPhone || '',
+        delivery_address: o.delivery_address,
+        special_instructions: stripped || o.special_instructions,
+        payment_mode: o.payment_mode,
+        transaction_ref: o.transaction_ref,
+        subtotal: Number(o.subtotal),
+        tax_amount: Number(o.tax_amount),
+        discount_amount: Number(o.discount_amount),
+        additional_charges: Number(o.additional_charges || 0),
+        grand_total: Number(o.grand_total),
+        status: o.status,
+        payment_status: o.payment_status,
+        created_at: o.created_at,
+        items: o.order_items || []
+      };
+    });
   }
 
   /**

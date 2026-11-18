@@ -8,11 +8,19 @@ const router = Router();
 // Public Storefront Endpoints
 router.get('/health', OrderController.healthCheck);
 router.post('/create', publicWriteRateLimiter, OrderController.createOrder);
+router.post('/', publicWriteRateLimiter, OrderController.createOrder);
 router.get('/track/:orderNumber', orderTrackRateLimiter, OrderController.trackOrder);
 
 // Protected Staff & Management Endpoints
 router.get(
   '/recent',
+  requireAuth,
+  requireRole(['admin', 'manager', 'staff']),
+  OrderController.getRecentOrders
+);
+
+router.get(
+  '/',
   requireAuth,
   requireRole(['admin', 'manager', 'staff']),
   OrderController.getRecentOrders

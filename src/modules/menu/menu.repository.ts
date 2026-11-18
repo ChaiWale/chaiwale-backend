@@ -90,7 +90,9 @@ export class MenuRepository {
 
     return (data || []).map((item: any) => ({
       ...item,
-      variants: Array.isArray(item.variants) ? item.variants : []
+      variants: Array.isArray(item.variants)
+        ? item.variants.sort((a: any, b: any) => Number(a.price) - Number(b.price))
+        : []
     }));
   }
 
@@ -116,7 +118,9 @@ export class MenuRepository {
     if (!data) return null;
     return {
       ...data,
-      variants: Array.isArray(data.variants) ? data.variants : []
+      variants: Array.isArray(data.variants)
+        ? data.variants.sort((a: any, b: any) => Number(a.price) - Number(b.price))
+        : []
     };
   }
 
@@ -142,7 +146,9 @@ export class MenuRepository {
 
     return {
       ...data,
-      variants: Array.isArray(data.variants) ? data.variants : []
+      variants: Array.isArray(data.variants)
+        ? data.variants.sort((a: any, b: any) => Number(a.price) - Number(b.price))
+        : []
     };
   }
 
