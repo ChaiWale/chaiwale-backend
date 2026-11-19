@@ -133,6 +133,7 @@ export class OrderRepository {
         order_number,
         order_type,
         delivery_address,
+        special_instructions,
         payment_mode,
         transaction_ref,
         subtotal,
@@ -143,6 +144,10 @@ export class OrderRepository {
         status,
         payment_status,
         created_at,
+        customers (
+          name,
+          phone
+        ),
         order_items (
           id,
           item_name,
@@ -166,11 +171,25 @@ export class OrderRepository {
 
     if (!data) return null;
 
+    let custName = (data as any).customers?.name;
+    let custPhone = (data as any).customers?.phone;
+    if (!custName && data.special_instructions) {
+      const nameMatch = data.special_instructions.match(/Customer:\s*([^,(]+)/i);
+      if (nameMatch) custName = nameMatch[1].trim();
+    }
+    if (!custPhone && data.special_instructions) {
+      const phoneMatch = data.special_instructions.match(/Phone:\s*([\d\s+\-()]+)/i);
+      if (phoneMatch) custPhone = phoneMatch[1].trim();
+    }
+
     return {
       id: data.id,
       order_number: data.order_number,
       order_type: data.order_type,
+      customer_name: custName || 'Valued Customer',
+      customer_phone: custPhone || '',
       delivery_address: data.delivery_address,
+      special_instructions: data.special_instructions,
       payment_mode: data.payment_mode,
       transaction_ref: data.transaction_ref,
       subtotal: Number(data.subtotal),
