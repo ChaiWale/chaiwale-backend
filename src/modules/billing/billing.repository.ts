@@ -440,7 +440,66 @@ export class BillingRepository {
     if (isUuid) {
       const { data, error } = await query.eq('id', invoiceId.trim()).maybeSingle();
       if (error) throw new Error(`Database error fetching invoice details: ${error.message}`);
-      return data;
+      if (data) return data;
+
+      // Check if UUID is an order id
+      const { data: orderById } = await admin.from('orders').select('id, order_number').eq('id', invoiceId.trim()).maybeSingle();
+      if (orderById) {
+        const { data: invByOrder } = await admin
+          .from('invoices')
+          .select(`
+            id,
+            invoice_number,
+            invoice_type,
+            department,
+            subtotal,
+            tax_amount,
+            discount_amount,
+            grand_total,
+            paid_amount,
+            outstanding_amount,
+            status,
+            issued_at,
+            pdf_storage_path,
+            corporate_clients (
+              id,
+              company_name,
+              gstin,
+              billing_address
+            ),
+            orders (
+              id,
+              order_number,
+              customer_id,
+              delivery_address,
+              payment_mode,
+              customers (
+                name,
+                phone
+              ),
+              order_items (
+                item_name,
+                unit_price,
+                quantity,
+                line_total
+              )
+            ),
+            payments (
+              id,
+              amount,
+              payment_mode,
+              payment_status,
+              transaction_ref,
+              paid_at
+            )
+          `)
+          .eq('order_id', orderById.id)
+          .maybeSingle();
+
+        if (invByOrder) return invByOrder;
+
+        return this.constructInvoiceFromOrder(admin, orderById.id);
+      }
     }
 
     const trimmed = invoiceId.trim().toUpperCase();
@@ -448,7 +507,7 @@ export class BillingRepository {
     if (invErr) throw new Error(`Database error fetching invoice: ${invErr.message}`);
     if (invData) return invData;
 
-    // Fallback: If passed an order number (e.g. CW-POS-...), resolve linked invoice
+    // Fallback: If passed an order number (e.g. CW-102517), resolve linked invoice or construct on-the-fly
     const { data: orderRec } = await admin.from('orders').select('id').eq('order_number', trimmed).maybeSingle();
     if (orderRec?.id) {
       const { data: invByOrder } = await admin
@@ -503,9 +562,89 @@ export class BillingRepository {
         .maybeSingle();
 
       if (invByOrder) return invByOrder;
+
+      // Construct on-the-fly retail invoice from order
+      return this.constructInvoiceFromOrder(admin, orderRec.id);
     }
 
     return null;
+  }
+
+  /**
+   * Helper to construct on-the-fly retail tax invoice from an existing order
+   */
+  private static async constructInvoiceFromOrder(admin: any, orderId: string): Promise<any | null> {
+    const { data: fullOrder, error } = await admin
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        order_type,
+        customer_id,
+        delivery_address,
+        special_instructions,
+        payment_mode,
+        transaction_ref,
+        subtotal,
+        tax_amount,
+        discount_amount,
+        additional_charges,
+        grand_total,
+        status,
+        payment_status,
+        created_at,
+        customers (
+          name,
+          phone,
+          email
+        ),
+        order_items (
+          item_name,
+          unit_price,
+          quantity,
+          line_total
+        )
+      `)
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (error || !fullOrder) return null;
+
+    let custName = fullOrder.customers?.name;
+    let custPhone = fullOrder.customers?.phone;
+    if (!custName && fullOrder.special_instructions) {
+      const nameMatch = fullOrder.special_instructions.match(/Customer:\s*([^,(]+)/i);
+      if (nameMatch) custName = nameMatch[1].trim();
+    }
+    if (!custPhone && fullOrder.special_instructions) {
+      const phoneMatch = fullOrder.special_instructions.match(/Phone:\s*([\d\s+\-()]+)/i);
+      if (phoneMatch) custPhone = phoneMatch[1].trim();
+    }
+
+    const isPaid = fullOrder.payment_status === 'PAID';
+    return {
+      id: fullOrder.id,
+      invoice_number: fullOrder.order_number,
+      invoice_type: 'RETAIL_TAX_INVOICE',
+      department: fullOrder.order_type ? fullOrder.order_type.replace(/_/g, ' ') : 'RETAIL ORDER',
+      subtotal: Number(fullOrder.subtotal || fullOrder.grand_total),
+      tax_amount: Number(fullOrder.tax_amount || 0),
+      discount_amount: Number(fullOrder.discount_amount || 0),
+      grand_total: Number(fullOrder.grand_total),
+      paid_amount: isPaid ? Number(fullOrder.grand_total) : 0,
+      outstanding_amount: isPaid ? 0 : Number(fullOrder.grand_total),
+      status: isPaid ? 'PAID' : (fullOrder.payment_mode === 'CASH' ? 'UNPAID' : 'PENDING'),
+      issued_at: fullOrder.created_at,
+      orders: {
+        ...fullOrder,
+        customer_name: custName,
+        customer_phone: custPhone,
+        customers: {
+          name: custName || 'Counter Customer',
+          phone: custPhone || ''
+        }
+      }
+    };
   }
 
 
