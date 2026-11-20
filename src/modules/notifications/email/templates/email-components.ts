@@ -106,6 +106,12 @@ export function renderEmailStatusBadge(status: string): string {
   let label = status;
 
   switch (norm) {
+    case 'PENDING':
+    case 'NEW':
+      bg = '#FEF3C7';
+      color = '#B45309';
+      label = 'Pending Confirmation';
+      break;
     case 'CONFIRMED':
       bg = '#E8F5E9';
       color = '#2E7D32';

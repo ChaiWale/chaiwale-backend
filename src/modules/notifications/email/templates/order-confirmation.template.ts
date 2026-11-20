@@ -18,6 +18,7 @@ export interface OrderConfirmationData {
   customerName: string;
   orderDate: string;
   orderType: string;
+  orderStatus?: string;
   deliveryAddress?: string;
   specialInstructions?: string;
   items: OrderItemSummary[];
@@ -37,6 +38,8 @@ export function generateOrderConfirmationEmail(data: OrderConfirmationData): {
   text: string;
 } {
   const trackingUrl = `${config.appUrl}/track?order=${encodeURIComponent(data.orderNumber)}`;
+  const status = (data.orderStatus || 'PENDING').toUpperCase();
+  const isPending = status === 'PENDING' || status === 'NEW';
 
   const itemsRows = data.items
     .map(
@@ -59,17 +62,45 @@ export function generateOrderConfirmationEmail(data: OrderConfirmationData): {
     )
     .join('');
 
+  const waConfirmUrl = `https://wa.me/919310112564?text=${encodeURIComponent(`Hello Chaiwale! I have placed order #${data.orderNumber} (${data.customerName}). Please confirm my order.`)}`;
+
   const contentHtml = `
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333333; line-height: 1.6;">
-      <div style="margin-bottom: 24px;">
-        <span style="font-size: 13px; font-weight: 600; color: #6F432A; text-transform: uppercase; letter-spacing: 0.5px;">Order Confirmation</span>
+      <div style="margin-bottom: 20px;">
+        <span style="font-size: 13px; font-weight: 600; color: #6F432A; text-transform: uppercase; letter-spacing: 0.5px;">Order Details</span>
         <h1 style="margin: 6px 0 0 0; font-size: 22px; font-weight: 700; color: #1A1A1A; line-height: 1.3;">
-          Thank you for your order, ${escapeHtml(data.customerName)}!
+          ${isPending ? `Order Placed, ${escapeHtml(data.customerName)}!` : `Thank you for your order, ${escapeHtml(data.customerName)}!`}
         </h1>
         <p style="margin: 10px 0 0 0; font-size: 15px; color: #555555;">
-          We have received your order <strong>#${escapeHtml(data.orderNumber)}</strong>. Our kitchen team has begun preparing your food fresh with authentic spices and wholesome ingredients.
+          ${isPending
+            ? `We have received your order request <strong>#${escapeHtml(data.orderNumber)}</strong>. Please review your order details below.`
+            : `We have confirmed your order <strong>#${escapeHtml(data.orderNumber)}</strong>. Our kitchen team has begun preparing your food fresh with authentic spices and wholesome ingredients.`
+          }
         </p>
       </div>
+
+      ${isPending ? `
+      <!-- Prominent Pending Action Notice -->
+      <div style="background-color: #FFFBEB; border: 2px solid #F59E0B; border-radius: 8px; padding: 18px 20px; margin: 20px 0 24px 0; text-align: center;">
+        <div style="font-size: 14px; font-weight: 800; color: #B45309; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+          ⚠️ Order Status: PENDING CONFIRMATION
+        </div>
+        <div style="font-size: 16px; font-weight: 700; color: #78350F; margin-bottom: 8px;">
+          Please call the restaurant to confirm your order:
+        </div>
+        <div style="font-size: 18px; font-weight: 800; color: #6F432A; margin-bottom: 10px;">
+          📞 <a href="tel:+919310112564" style="color: #6F432A; text-decoration: none;">+91 93101 12564</a> &nbsp;&nbsp;|&nbsp;&nbsp; 📞 <a href="tel:+919310110414" style="color: #6F432A; text-decoration: none;">+91 93101 10414</a>
+        </div>
+        <div style="font-size: 13px; color: #92400E; font-weight: 500;">
+          Our kitchen will start preparing your order as soon as confirmation is received.
+        </div>
+        <div style="margin-top: 14px;">
+          <a href="${waConfirmUrl}" target="_blank" style="display: inline-block; background-color: #25D366; color: #FFFFFF; font-weight: 700; font-size: 13px; text-decoration: none; padding: 10px 22px; border-radius: 6px; box-shadow: 0 2px 8px rgba(37, 211, 102, 0.3);">
+            💬 Confirm Order on WhatsApp
+          </a>
+        </div>
+      </div>
+      ` : ''}
 
       <!-- Order Metadata Box -->
       <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FAF7F5; border: 1px solid #ECE5E0; border-radius: 6px; padding: 16px; margin-bottom: 28px;">
@@ -78,7 +109,7 @@ export function generateOrderConfirmationEmail(data: OrderConfirmationData): {
             <strong>Order Reference:</strong> #${escapeHtml(data.orderNumber)}
           </td>
           <td width="50%" align="right" style="padding: 6px 0; font-size: 13px; color: #666666;">
-            <strong>Status:</strong> ${renderEmailStatusBadge('CONFIRMED')}
+            <strong>Status:</strong> ${renderEmailStatusBadge(status)}
           </td>
         </tr>
         <tr>
@@ -151,15 +182,20 @@ export function generateOrderConfirmationEmail(data: OrderConfirmationData): {
       </div>
 
       <p style="font-size: 14px; color: #666666; margin-top: 24px; text-align: center;">
-        Have a question or need to update delivery instructions? Call our store desk at <a href="tel:+919310112564" style="color: #6F432A; font-weight: 600; text-decoration: none;">+91 93101 12564</a>.
+        Have a question or need help? Call our store desk at <a href="tel:+919310112564" style="color: #6F432A; font-weight: 600; text-decoration: none;">+91 93101 12564</a> or <a href="tel:+919310110414" style="color: #6F432A; font-weight: 600; text-decoration: none;">+91 93101 10414</a>.
       </p>
     </div>
   `;
 
-  const subject = `Your Chaiwale Order #${data.orderNumber} is Confirmed`;
+  const subject = isPending
+    ? `Order Placed #${data.orderNumber} (Pending Confirmation) | Chaiwale`
+    : `Your Chaiwale Order #${data.orderNumber} is Confirmed`;
+
   const html = renderEmailLayout({
     title: subject,
-    previewText: `Your order #${data.orderNumber} is confirmed and is being prepared fresh.`,
+    previewText: isPending
+      ? `Order #${data.orderNumber} received. Please call restaurant to confirm.`
+      : `Your order #${data.orderNumber} is confirmed and is being prepared fresh.`,
     contentHtml,
     footerNote: 'Thank you for supporting authentic North Indian culinary heritage.'
   });
@@ -167,16 +203,23 @@ export function generateOrderConfirmationEmail(data: OrderConfirmationData): {
   const text = `
 Dear ${data.customerName},
 
-Thank you for choosing Chaiwale! Your order #${data.orderNumber} is confirmed.
+${isPending ? 'Your order has been placed and is PENDING CONFIRMATION.' : 'Thank you for choosing Chaiwale! Your order is confirmed.'}
+
+Order Reference: #${data.orderNumber}
+Status: ${status}
 Order Date: ${data.orderDate}
 Fulfillment: ${data.orderType}
 Payment: ${data.paymentMode} (${data.paymentStatus})
 Grand Total: ₹${data.grandTotal.toFixed(2)}
 
+${isPending ? `PLEASE CALL THE RESTAURANT TO CONFIRM YOUR ORDER:
++91 93101 12564 | +91 93101 10414
+Our kitchen will start preparing your order as soon as confirmation is received.` : ''}
+
 Track your order live: ${trackingUrl}
 
 Chaiwale | Upper Ground Floor, Vardhman Grand Plaza, G-31, M2K Rd, Mangalam Place, Sector 03, Rohini, New Delhi
-Phone: +91 93101 12564 | Website: ${config.appUrl}
+Phone: +91 93101 12564 / +91 93101 10414 | Website: ${config.appUrl}
 
 This is an automated message from Chaiwale. Please do not reply to this email.
   `.trim();

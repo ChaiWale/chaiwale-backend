@@ -4,6 +4,8 @@ import { ResendEmailProvider } from './resend.provider';
 import {
   OrderConfirmationData,
   generateOrderConfirmationEmail,
+  NewOrderInternalData,
+  generateNewOrderInternalEmail,
   OrderStatusUpdateData,
   generateOrderStatusEmail,
   CustomerInvoiceData,
@@ -53,6 +55,27 @@ export class EmailService implements IEmailProvider {
       subject,
       html,
       text
+    });
+  }
+
+  /**
+   * 1b. Internal New Order Notification to Operations (chaiwale528@gmail.com)
+   * Dispatches immediate alert for kitchen staff with order breakdown and Admin links.
+   * Sender: Chaiwale Orders <orders@chaiwale.co.in>
+   */
+  async sendNewOrderInternalAlert(
+    data: NewOrderInternalData
+  ): Promise<EmailSendResult> {
+    const { subject, html, text } = generateNewOrderInternalEmail(data);
+    const targetEmail = config.email.supportNotificationEmail || 'chaiwale528@gmail.com';
+
+    return this.provider.sendEmail({
+      from: config.email.fromOrders,
+      to: targetEmail,
+      subject,
+      html,
+      text,
+      replyTo: data.customerEmail || undefined
     });
   }
 

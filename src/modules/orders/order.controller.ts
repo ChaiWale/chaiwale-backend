@@ -36,9 +36,10 @@ export class OrderController {
         return;
       }
 
-      // Parse customer name & phone from body or specialInstructions
+      // Parse customer name, phone & optional email from body or specialInstructions
       let customerName = (req.body.customerName || '').trim();
       let customerPhone = (req.body.customerPhone || '').trim();
+      const customerEmail = (req.body.customerEmail || req.body.email || '').trim();
       if (!customerName || !customerPhone) {
         if (specialInstructions) {
           const nameMatch = specialInstructions.match(/Customer:\s*([^,(]+)/i);
@@ -64,13 +65,15 @@ export class OrderController {
 
             if (existingCust) {
               resolvedCustomerId = existingCust.id;
-              if (deliveryAddress || customerName) {
+              if (deliveryAddress || customerName || customerEmail) {
+                const updatePayload: Record<string, any> = {
+                  name: customerName,
+                  delivery_address: deliveryAddress || undefined
+                };
+                if (customerEmail) updatePayload.email = customerEmail;
                 await admin
                   .from('customers')
-                  .update({
-                    name: customerName,
-                    delivery_address: deliveryAddress || undefined
-                  })
+                  .update(updatePayload)
                   .eq('id', resolvedCustomerId);
               }
             } else {
@@ -79,6 +82,7 @@ export class OrderController {
                 .insert({
                   name: customerName,
                   phone: cleanPhone,
+                  email: customerEmail || null,
                   delivery_address: deliveryAddress || null
                 })
                 .select('id')
@@ -108,11 +112,13 @@ export class OrderController {
       const waMessage = `Hello Chaiwale! 🙏\n\nNew Order: ${result.orderNumber}\nCustomer: ${customerName}${customerPhone ? `\nPhone: ${customerPhone}` : ''}${deliveryAddress ? `\nAddress: ${deliveryAddress}` : ''}\n\nItems:\n${itemLines}\n\nTotal: ₹${grandTotal}\nPayment: ${req.body.paymentMode || 'CASH'}\n\nPlease confirm this order.`;
       const waResult = buildWhatsAppUrl(DEFAULT_STORE_WHATSAPP, waMessage);
 
-      // Send internal email notification to chaiwale528@gmail.com
+      // 1. Dispatch internal operations alert to chaiwale528@gmail.com
       try {
-        await emailService.sendOrderConfirmation('chaiwale528@gmail.com', {
+        await emailService.sendNewOrderInternalAlert({
           orderNumber: result.orderNumber,
           customerName,
+          customerPhone: customerPhone || undefined,
+          customerEmail: customerEmail || undefined,
           orderDate: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
           orderType: orderType || 'DIRECT_DELIVERY',
           deliveryAddress: deliveryAddress || undefined,
@@ -126,11 +132,39 @@ export class OrderController {
           subtotal: grandTotal,
           grandTotal,
           paymentMode: req.body.paymentMode || 'CASH',
-          paymentStatus: 'PENDING'
+          paymentStatus: req.body.paymentMode === 'UPI' ? 'PENDING' : 'PENDING'
         });
-        console.log(`[ORDER NOTIFY] Email dispatched to chaiwale528@gmail.com for ${result.orderNumber}`);
+        console.log(`[ORDER NOTIFY] Internal alert email dispatched to store operations for ${result.orderNumber}`);
       } catch (emailErr: any) {
-        console.error(`[ORDER NOTIFY] Email failed for ${result.orderNumber}: ${emailErr?.message || emailErr}`);
+        console.error(`[ORDER NOTIFY] Internal email failed for ${result.orderNumber}: ${emailErr?.message || emailErr}`);
+      }
+
+      // 2. Dispatch customer confirmation email (status: PENDING + Call Restaurant notice) if email provided
+      if (customerEmail) {
+        try {
+          await emailService.sendOrderConfirmation(customerEmail, {
+            orderNumber: result.orderNumber,
+            customerName,
+            orderDate: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+            orderType: orderType || 'DIRECT_DELIVERY',
+            orderStatus: 'PENDING',
+            deliveryAddress: deliveryAddress || undefined,
+            specialInstructions: specialInstructions || undefined,
+            items: items.map((it: any) => ({
+              name: it.name || 'Menu Item',
+              quantity: Number(it.quantity || 1),
+              unitPrice: Number(it.unitPrice || 0),
+              total: Number(it.unitPrice || 0) * Number(it.quantity || 1)
+            })),
+            subtotal: grandTotal,
+            grandTotal,
+            paymentMode: req.body.paymentMode || 'CASH',
+            paymentStatus: req.body.paymentMode === 'UPI' ? 'PENDING' : 'PENDING'
+          });
+          console.log(`[ORDER NOTIFY] Customer order email dispatched to ${customerEmail} for ${result.orderNumber}`);
+        } catch (custEmailErr: any) {
+          console.error(`[ORDER NOTIFY] Customer email failed for ${result.orderNumber}: ${custEmailErr?.message || custEmailErr}`);
+        }
       }
 
       res.status(201).json({
