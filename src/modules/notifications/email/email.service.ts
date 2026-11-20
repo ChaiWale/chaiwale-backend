@@ -6,6 +6,8 @@ import {
   generateOrderConfirmationEmail,
   NewOrderInternalData,
   generateNewOrderInternalEmail,
+  OrderDeliveredReviewData,
+  generateOrderDeliveredReviewEmail,
   OrderStatusUpdateData,
   generateOrderStatusEmail,
   CustomerInvoiceData,
@@ -88,6 +90,24 @@ export class EmailService implements IEmailProvider {
     data: OrderStatusUpdateData
   ): Promise<EmailSendResult> {
     const { subject, html, text } = generateOrderStatusEmail(data);
+    return this.provider.sendEmail({
+      from: config.email.fromOrders,
+      to,
+      subject,
+      html,
+      text
+    });
+  }
+
+  /**
+   * 2b. Order Delivered & Google Review Feedback Email
+   * Sender: Chaiwale Orders <orders@chaiwale.co.in>
+   */
+  async sendOrderDeliveredReview(
+    to: string | string[],
+    data: OrderDeliveredReviewData
+  ): Promise<EmailSendResult> {
+    const { subject, html, text } = generateOrderDeliveredReviewEmail(data);
     return this.provider.sendEmail({
       from: config.email.fromOrders,
       to,

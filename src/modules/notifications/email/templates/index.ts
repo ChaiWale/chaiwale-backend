@@ -1,6 +1,7 @@
 export * from './email-components';
 export * from './order-confirmation.template';
 export * from './new-order-internal.template';
+export * from './order-delivered-review.template';
 export * from './order-status.template';
 export * from './customer-invoice.template';
 export * from './payment-receipt.template';

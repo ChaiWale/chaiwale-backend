@@ -31,6 +31,7 @@ export interface OrderRecord {
   order_type: string;
   customer_name?: string;
   customer_phone?: string;
+  customer_email?: string;
   delivery_address?: string;
   special_instructions?: string;
   payment_mode?: string;
@@ -146,7 +147,8 @@ export class OrderRepository {
         created_at,
         customers (
           name,
-          phone
+          phone,
+          email
         ),
         order_items (
           id,
@@ -173,6 +175,7 @@ export class OrderRepository {
 
     let custName = (data as any).customers?.name;
     let custPhone = (data as any).customers?.phone;
+    let custEmail = (data as any).customers?.email;
     if (!custName && data.special_instructions) {
       const nameMatch = data.special_instructions.match(/Customer:\s*([^,(]+)/i);
       if (nameMatch) custName = nameMatch[1].trim();
@@ -181,6 +184,10 @@ export class OrderRepository {
       const phoneMatch = data.special_instructions.match(/Phone:\s*([\d\s+\-()]+)/i);
       if (phoneMatch) custPhone = phoneMatch[1].trim();
     }
+    if (!custEmail && data.special_instructions) {
+      const emailMatch = data.special_instructions.match(/Email:\s*([^\s,)]+)/i);
+      if (emailMatch) custEmail = emailMatch[1].trim();
+    }
 
     return {
       id: data.id,
@@ -188,6 +195,7 @@ export class OrderRepository {
       order_type: data.order_type,
       customer_name: custName || 'Valued Customer',
       customer_phone: custPhone || '',
+      customer_email: custEmail || undefined,
       delivery_address: data.delivery_address,
       special_instructions: data.special_instructions,
       payment_mode: data.payment_mode,
@@ -233,7 +241,8 @@ export class OrderRepository {
         created_at,
         customers (
           name,
-          phone
+          phone,
+          email
         ),
         order_items (
           item_name,
@@ -252,6 +261,7 @@ export class OrderRepository {
     return (data || []).map((o: any) => {
       let custName = o.customers?.name;
       let custPhone = o.customers?.phone;
+      let custEmail = o.customers?.email;
 
       if (!custName && o.special_instructions) {
         const nameMatch = o.special_instructions.match(/Customer:\s*([^,(]+)/i);
@@ -261,6 +271,11 @@ export class OrderRepository {
       if (!custPhone && o.special_instructions) {
         const phoneMatch = o.special_instructions.match(/Phone:\s*([\d\s+\-()]+)/i);
         if (phoneMatch) custPhone = phoneMatch[1].trim();
+      }
+
+      if (!custEmail && o.special_instructions) {
+        const emailMatch = o.special_instructions.match(/Email:\s*([^\s,)]+)/i);
+        if (emailMatch) custEmail = emailMatch[1].trim();
       }
 
       // Clean special instructions if it only had Customer/Phone metadata
@@ -273,6 +288,7 @@ export class OrderRepository {
         order_type: o.order_type,
         customer_name: custName || (o.order_type === 'DINE_IN' ? 'Walk-in Table' : 'Direct Customer'),
         customer_phone: custPhone || '',
+        customer_email: custEmail || undefined,
         delivery_address: o.delivery_address,
         special_instructions: stripped || o.special_instructions,
         payment_mode: o.payment_mode,

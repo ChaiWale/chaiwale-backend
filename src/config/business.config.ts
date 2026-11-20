@@ -52,7 +52,8 @@ export const BUSINESS_CONFIG = {
     api: 'https://api.chaiwale.co.in',
     admin: 'https://admin.chaiwale.co.in',
     billbook: 'https://bills.chaiwale.co.in',
-    logo: 'https://chaiwale.co.in/assets/chaiwale-logo.jpeg'
+    logo: 'https://chaiwale.co.in/assets/chaiwale-logo.jpeg',
+    googleReview: 'https://g.page/r/Ca1qOd1BBfkEEBM/review'
   },
 
   tax: {

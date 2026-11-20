@@ -2,8 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import { OrderService } from './order.service';
 import { ApiResponse } from '../../types/common.types';
 import { emailService } from '../notifications/email/email.service';
-import { buildWhatsAppUrl, DEFAULT_STORE_WHATSAPP } from '../notifications/whatsapp/whatsapp-builder';
+import { buildWhatsAppUrl, DEFAULT_STORE_WHATSAPP, WhatsAppTemplates } from '../notifications/whatsapp/whatsapp-builder';
 import { getSupabaseAdminClient } from '../../config/supabase.config';
+import { config } from '../../config/env.config';
+import { OrderRepository } from './order.repository';
 
 export class OrderController {
   public static async healthCheck(_req: Request, res: Response<ApiResponse>): Promise<void> {
@@ -242,10 +244,105 @@ export class OrderController {
         return;
       }
 
-      await OrderService.updateOrderStatus(id, status);
+      const cleanStatus = status.toUpperCase().trim();
+      await OrderService.updateOrderStatus(id, cleanStatus);
+
+      // Fetch order details for customer multi-channel notification dispatch
+      let whatsAppUrl: string | null = null;
+      try {
+        const order = await OrderRepository.trackOrder(id);
+        if (order) {
+          const custName = order.customer_name || 'Customer';
+          const custPhone = order.customer_phone || undefined;
+          const custEmail = order.customer_email || undefined;
+          const trackingUrl = `${config.appUrl}/track?order=${encodeURIComponent(order.order_number)}`;
+          const googleReviewUrl = 'https://g.page/r/Ca1qOd1BBfkEEBM/review';
+
+          // 1. STAGE 1: ORDER CONFIRMED BY STORE
+          if (cleanStatus === 'CONFIRMED') {
+            // Customer Email Dispatch
+            if (custEmail) {
+              try {
+                await emailService.sendOrderConfirmation(custEmail, {
+                  orderNumber: order.order_number,
+                  customerName: custName,
+                  orderDate: new Date(order.created_at || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+                  orderType: order.order_type || 'DIRECT_DELIVERY',
+                  orderStatus: 'CONFIRMED',
+                  deliveryAddress: order.delivery_address || undefined,
+                  specialInstructions: order.special_instructions || undefined,
+                  items: (order.items || []).map((it: any) => ({
+                    name: it.item_name || 'Item',
+                    quantity: Number(it.quantity || 1),
+                    unitPrice: Number(it.unit_price || 0),
+                    total: Number(it.line_total || 0)
+                  })),
+                  subtotal: Number(order.subtotal || order.grand_total || 0),
+                  grandTotal: Number(order.grand_total || 0),
+                  paymentMode: order.payment_mode || 'CASH',
+                  paymentStatus: order.payment_status || 'PENDING'
+                });
+                console.log(`[ORDER NOTIFY] Dispatched CONFIRMED email to ${custEmail} for #${order.order_number}`);
+              } catch (emailErr: any) {
+                console.error(`[ORDER NOTIFY] Customer email failed on CONFIRMED: ${emailErr?.message || emailErr}`);
+              }
+            }
+
+            // Customer WhatsApp Message
+            if (custPhone) {
+              const waText = WhatsAppTemplates.ORDER_CONFIRMATION({
+                customerName: custName,
+                orderNumber: order.order_number,
+                total: order.grand_total,
+                paymentMode: order.payment_mode || 'CASH',
+                trackingUrl
+              });
+              const waRes = buildWhatsAppUrl(custPhone, waText);
+              if (waRes.success) whatsAppUrl = waRes.url || null;
+            }
+          }
+
+          // 2. STAGE 2: ORDER DELIVERED / COMPLETED + GOOGLE REVIEW REQUEST
+          if (cleanStatus === 'DELIVERED' || cleanStatus === 'COMPLETED') {
+            // Customer Email Dispatch with Google Review Link
+            if (custEmail) {
+              try {
+                await emailService.sendOrderDeliveredReview(custEmail, {
+                  orderNumber: order.order_number,
+                  customerName: custName,
+                  grandTotal: Number(order.grand_total || 0),
+                  googleReviewUrl,
+                  deliveredDate: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                });
+                console.log(`[ORDER NOTIFY] Dispatched DELIVERED & Review email to ${custEmail} for #${order.order_number}`);
+              } catch (emailErr: any) {
+                console.error(`[ORDER NOTIFY] Customer email failed on DELIVERED: ${emailErr?.message || emailErr}`);
+              }
+            }
+
+            // Customer WhatsApp Message with Google Review Link
+            if (custPhone) {
+              const waText = WhatsAppTemplates.ORDER_DELIVERED_REVIEW({
+                customerName: custName,
+                orderNumber: order.order_number,
+                googleReviewUrl
+              });
+              const waRes = buildWhatsAppUrl(custPhone, waText);
+              if (waRes.success) whatsAppUrl = waRes.url || null;
+            }
+          }
+        }
+      } catch (notifyErr: any) {
+        console.error(`[ORDER NOTIFY] Warning: Post-status dispatch error:`, notifyErr);
+      }
+
       res.json({
         success: true,
-        message: `Order status updated to ${status.toUpperCase()} in database`,
+        message: `Order status updated to ${cleanStatus} in database`,
+        data: {
+          status: cleanStatus,
+          whatsAppUrl
+        },
         timestamp: new Date().toISOString()
       });
     } catch (err: any) {

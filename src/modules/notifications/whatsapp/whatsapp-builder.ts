@@ -151,16 +151,32 @@ Chaiwale`,
   ORDER_COMPLETED: (params: {
     customerName: string;
     orderNumber: string;
+    googleReviewUrl?: string;
   }) =>
 `Hello ${params.customerName},
 
-Your Chaiwale order #${params.orderNumber} has been completed.
+Your Chaiwale order #${params.orderNumber} has been delivered! We hope you loved your food and kulhad chai.
 
-Thank you for choosing Chaiwale.
+Could you please take 30 seconds to rate us and share your review on Google? Your feedback means the world to our kitchen team:
+${params.googleReviewUrl || 'https://g.page/r/Ca1qOd1BBfkEEBM/review'}
 
-We hope to serve you again.
+Thank you for choosing Chaiwale!
+Chaiwale Cafe & Catering`,
 
-— Chaiwale`,
+  ORDER_DELIVERED_REVIEW: (params: {
+    customerName: string;
+    orderNumber: string;
+    googleReviewUrl?: string;
+  }) =>
+`Hello ${params.customerName},
+
+Your Chaiwale order #${params.orderNumber} has been delivered! We hope you loved your food and kulhad chai.
+
+Could you please take 30 seconds to rate us and share your review on Google? Your feedback means the world to our kitchen team:
+${params.googleReviewUrl || 'https://g.page/r/Ca1qOd1BBfkEEBM/review'}
+
+Thank you for choosing Chaiwale!
+Chaiwale Cafe & Catering`,
 
   PAYMENT_REMINDER: (params: {
     customerName: string;
