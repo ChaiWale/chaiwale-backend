@@ -92,21 +92,28 @@ export const WhatsAppTemplates = {
     total: number | string;
     paymentMode: string;
     trackingUrl: string;
-  }) =>
-`Hello ${params.customerName},
+    items?: Array<{ name: string; quantity: number; unitPrice?: number; lineTotal?: number }>;
+  }) => {
+    let itemsBlock = '';
+    if (params.items && params.items.length > 0) {
+      itemsBlock = '\nOrder Details:\n' + params.items.map(it => `• ${it.name} x ${it.quantity}${it.unitPrice ? ` (₹${Number(it.unitPrice).toFixed(2)} each)` : ''} = ₹${Number(it.lineTotal || (Number(it.unitPrice || 0) * it.quantity)).toFixed(2)}`).join('\n') + '\n';
+    }
+
+    return `Hello ${params.customerName},
 
 Thank you for ordering from Chaiwale.
 
 Your order #${params.orderNumber} has been confirmed.
-
+${itemsBlock}
 Order Total: ₹${Number(params.total).toFixed(2)}
 Payment: ${params.paymentMode}
 
-Track your order:
+Track your order live:
 ${params.trackingUrl}
 
 Thank you,
-Chaiwale`,
+Chaiwale`;
+  },
 
   ORDER_PREPARING: (params: {
     customerName: string;

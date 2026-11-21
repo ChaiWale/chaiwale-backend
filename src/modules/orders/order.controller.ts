@@ -295,7 +295,13 @@ export class OrderController {
                 orderNumber: order.order_number,
                 total: order.grand_total,
                 paymentMode: order.payment_mode || 'CASH',
-                trackingUrl
+                trackingUrl,
+                items: (order.items || []).map((it: any) => ({
+                  name: it.item_name || 'Item',
+                  quantity: Number(it.quantity || 1),
+                  unitPrice: Number(it.unit_price || 0),
+                  lineTotal: Number(it.line_total || 0)
+                }))
               });
               const waRes = buildWhatsAppUrl(custPhone, waText);
               if (waRes.success) whatsAppUrl = waRes.url || null;
